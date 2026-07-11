@@ -2700,7 +2700,8 @@ internal fun isPreOnsetAwakeStub(frag: SleepSession): Boolean {
 private fun sumGroupStages(group: List<SleepSession>): StageMins? {
     var aw = 0.0; var li = 0.0; var dp = 0.0; var rm = 0.0; var any = false
     for (frag in group) {
-        val s = parseSessionStages(frag.stagesJSON) ?: continue
+        // #259: each fragment's stages trimmed to its effective onset before summing (see buildSleepModel).
+        val s = parseSessionStages(SleepStageTotals.clampStagesToOnset(frag.stagesJSON, frag.effectiveStartTs)) ?: continue
         aw += s.awake; li += s.light; dp += s.deep; rm += s.rem; any = true
     }
     return if (any) StageMins(aw, li, dp, rm) else null
@@ -2823,7 +2824,10 @@ internal fun buildSleepModel(
     // (StagesVsTypical, Hypnogram footer) immediately without waiting on a rescore.
     val sessionStageMins = session
         ?.takeIf { AnalyticsEngine.dayString(it.endTs) == latest.day || localDayString(it.endTs) == latest.day }
-        ?.let { parseSessionStages(it.stagesJSON) }
+        // #259: trim to the EFFECTIVE onset before summing, so a hand-edited bedtime the raw was too sparse
+        // to re-stage (WHOOP 4.0) can't show pre-onset stages that push asleep past time-in-bed. No-op when
+        // the session already starts at its onset (the common case). Matches the analytics-side clamp.
+        ?.let { parseSessionStages(SleepStageTotals.clampStagesToOnset(it.stagesJSON, it.effectiveStartTs)) }
     val deep = heroStages?.deep ?: sessionStageMins?.deep ?: latest.deepMin ?: 0.0
     val rem = heroStages?.rem ?: sessionStageMins?.rem ?: latest.remMin ?: 0.0
     val light = heroStages?.light ?: sessionStageMins?.light ?: latest.lightMin ?: 0.0
