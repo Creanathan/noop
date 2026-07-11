@@ -2607,13 +2607,16 @@ internal fun selectNight(
     // hypnogram, and SUM their stage minutes for the hero. Built from `heroGroup` (the group minus a leading
     // spurious stub, #736) so the chart and minutes start at the displayed bedtime. Null for a single-block
     // hero → prior behaviour.
+    // #259: clamp each fragment's timeline to its effective onset too (matching the stage-minute clamp
+    // and the iOS decodeSegments clamp), so the hypnogram starts where the edited bedtime does instead of
+    // drawing pre-onset bars that contradict the clamped asleep total. No-op for non-edited nights.
     val groupSegments = if (heroGroup.size > 1) {
-        heroGroup.flatMap { parsePersistedSegments(it.stagesJSON).orEmpty() }
+        heroGroup.flatMap { parsePersistedSegments(SleepStageTotals.clampStagesToOnset(it.stagesJSON, it.effectiveStartTs)).orEmpty() }
             .sortedBy { it.start }
             .takeIf { it.size >= 2 }
     } else null
     val groupStages = if (heroGroup.size > 1) sumGroupStages(heroGroup) else null
-    val segments = (groupSegments ?: parsePersistedSegments(session.stagesJSON))
+    val segments = (groupSegments ?: parsePersistedSegments(SleepStageTotals.clampStagesToOnset(session.stagesJSON, session.effectiveStartTs)))
         ?.map { seg -> seg.stage to ((seg.end - seg.start) / 60f) }
     // #407: lay the GROUP's per-epoch motion fragment-by-fragment in `heroGroup` order (the same order
     // `groupSegments` lays the stage timeline), reading the already-chosen group's stored series. The
