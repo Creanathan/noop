@@ -105,6 +105,12 @@ object Whoop5RawV20 {
      * practice (its records are ~84-124 B), but a future caller should still resolve the family through
      * `DeviceFamily.forRegistryModel` and only reach here for WHOOP5, never string-compare a model label.
      *
+     * Does NOT verify the envelope CRC, and that is the parity-faithful split rather than an omission:
+     * Swift's `parseFrame` likewise decodes v20 fields on a CRC-bad frame and merely REPORTS `crcOK`,
+     * leaving the gate to its callers (`rejectedHistoricalRecords` / `extractHistoricalStreams` both drop
+     * on `crcOK == false`). A Kotlin caller must do the same — CRC-gate via `Framing.parseFrame` before
+     * trusting or storing anything decoded here (BLE safety contract: CRC-gate every inbound frame).
+     *
      * DELIBERATE, DOCUMENTED DIVERGENCE from Swift on MALFORMED input only: Swift's field layer decodes a
      * truncated v20 frame into however many channels fit, whereas this returns null for anything shorter
      * than 2140 B (the [Whoop5RawImu] gate idiom — the strap's v20 buffer is always exactly 2140 B). On

@@ -125,8 +125,15 @@ class Whoop5RawV20Test {
         assertNull(channel(d, "channel_b1_0"))
     }
 
-    /** A block header is gated on != 0, not on == 0x19, so an active block with an unexpected count byte
-     *  still decodes (mirrors the Swift `frame[blk.present] != 0` test). */
+    /**
+     * A block header is gated on != 0, not on == 0x19 (mirrors the Swift `frame[blk.present] != 0` test).
+     *
+     * This pins PARITY WITH SWIFT, not a claim about what a non-0x19 header means. The header byte reads
+     * 0x19 = 25 on every active block in all 29,203 captures, which is consistent with it being a live
+     * per-block sample count — if that's what it is, a hypothetical 0x07 block would carry 7 samples, not
+     * the 25 both decoders would read. No such buffer has ever been seen, so the case stays synthetic and
+     * the two platforms stay identical on it; if one ever turns up, fix BOTH decoders together.
+     */
     @Test fun anyNonZeroBlockHeaderCountsAsActive() {
         val f = syntheticFrame { f ->
             f[0x1a] = 0x07                                            // not 0x19, but non-zero
