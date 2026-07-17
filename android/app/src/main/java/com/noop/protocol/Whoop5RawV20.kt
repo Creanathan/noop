@@ -122,7 +122,13 @@ object Whoop5RawV20 {
      * neither heart_rate nor gravity), so the Backfiller archives their raw bytes before acking the trim —
      * which is what preserves them. Teaching [decodeHistorical] to return a v20 map would silently drop
      * them out of that archive while storing nothing, i.e. lose the data, and would also let a v20 frame
-     * win `Backfiller`'s observed-`hist_version` probe. Decode first, consume later (#423).
+     * win `Backfiller`'s observed-`hist_version` probe.
+     *
+     * Nor is being callerless the house pattern — [Whoop5RawImu] shipped WITH its PuffinDeepBufferLog
+     * caller in one commit (#481), as did its Swift side (#455). The reason is narrower: no parity-safe
+     * consumer exists yet. v20 channel identity is unproven, and Swift deliberately keeps the 2140-B
+     * buffer raw-only in its deep-buffer log, so wiring one on Android alone would re-open the parity gap
+     * from the other side. A consumer wants both platforms at once, once #423 settles identity.
      */
     fun decode(f: ByteArray): Whoop5V20Frame? {
         if (f.size < bufferLength) return null
