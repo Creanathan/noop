@@ -15,8 +15,10 @@ package com.noop.protocol
 //   @15  u32 LE  strap unix seconds for this record
 //   then FIVE channel blocks, each preceded by a block-header byte (0x19 = active, 0x00 = empty):
 //     header @0x1a / @0x1c0 / @0x366 / @0x50c / @0x6b2
-//     an active block holds TWO channels of 25 i32 LE samples (~25 Hz), at slot pairs
+//     an active block holds TWO channels of 25 i32 LE samples, at slot pairs
 //     @0x2f/@0xf7, @0x1d5/@0x29d, @0x37b/@0x443, @0x521/@0x5e9, @0x6c7/@0x78f
+//
+// The record's TIME SPAN is not established (so neither is a sample rate) — see [Whoop5V20Frame].
 //
 // WHY 25 SAMPLES, NOT 50: across all 29,203 captured 2140-B buffers, exactly blocks 0/3/4 are active
 // (channel slots @47/247/1313/1513/1735/1935) and, in every active channel, sample slots 25..49 are
@@ -48,17 +50,25 @@ data class Whoop5V20Channel(
     val name: String get() = "channel_b${block}_$half"
 }
 
-/** One decoded 2140-B v20 buffer: the record header plus whichever channel blocks were active. */
+/**
+ * One decoded 2140-B v20 buffer: the record header plus whichever channel blocks were active.
+ *
+ * Carries a sample COUNT and NO sample rate — deliberately, and unlike [Whoop5ImuFrame]. The v21 IMU
+ * buffer earns its `sampleRateHz`/`ts(i)`: it is documented as a full second of inertial data and was
+ * validated over 1423 real buffers. v20's record SPAN has never been established — "~25 Hz" is only an
+ * inference from "25 samples, probably ~1 s", and PuffinDeepBufferLog's own note (2140 B = "~59
+ * sub-records per timestamped second") would imply a far shorter span. The Swift decoder likewise emits
+ * only `sensor_channel_samples`, never a rate. Publishing a rate here would let a future consumer bank
+ * per-sample wall-clock timestamps derived from an unproven constant, so the span stays undecided until
+ * a capture settles it (derived-signal rule; #423).
+ */
 data class Whoop5V20Frame(
     val baseTs: Long,               // strap unix seconds (@15; full u32 — Swift reads it into a 64-bit Int)
     val recordIndex: Long,          // monotonic lifetime record index (@11; full u32)
     val layoutMarker: Int,          // @10 (0x81 on every captured v20 buffer)
-    val sampleRateHz: Int,          // 25 — one buffer is ~1 s of 25 Hz samples per channel
+    val sampleCount: Int,           // 25 per active channel — the Swift `sensor_channel_samples` twin
     val channels: List<Whoop5V20Channel>,
-) {
-    /** Wall-clock unix seconds for sample [i] (samples are evenly spaced across the 1-second record). */
-    fun ts(i: Int): Double = baseTs.toDouble() + i.toDouble() / maxOf(1, sampleRateHz).toDouble()
-}
+)
 
 object Whoop5RawV20 {
 
@@ -89,6 +99,11 @@ object Whoop5RawV20 {
      * Gates on the exact buffer length + the in-packet type (47) and layout version (20) bytes, NOT the
      * marker: the Swift decoder reports @10 rather than gating on it, so a buffer with an unexpected
      * marker must still decode identically here.
+     *
+     * Takes no [DeviceFamily] (matching [Whoop5RawImu.decode]) but reads WHOOP5-ABSOLUTE offsets — a 4.0
+     * carries its type byte at @4, not @8. The 2140-B length gate makes a 4.0 misfire unreachable in
+     * practice (its records are ~84-124 B), but a future caller should still resolve the family through
+     * `DeviceFamily.forRegistryModel` and only reach here for WHOOP5, never string-compare a model label.
      *
      * DELIBERATE, DOCUMENTED DIVERGENCE from Swift on MALFORMED input only: Swift's field layer decodes a
      * truncated v20 frame into however many channels fit, whereas this returns null for anything shorter
@@ -126,7 +141,7 @@ object Whoop5RawV20 {
             baseTs = u32(f, tsOff),
             recordIndex = u32(f, recordIndexOff),
             layoutMarker = u8(f, markerOff),
-            sampleRateHz = sampleCount,
+            sampleCount = sampleCount,
             channels = channels,
         )
     }

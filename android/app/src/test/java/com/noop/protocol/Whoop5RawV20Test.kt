@@ -55,7 +55,7 @@ class Whoop5RawV20Test {
         assertEquals(0x81, d.layoutMarker)
         assertEquals(11494060L, d.recordIndex)
         assertEquals(1784054004L, d.baseTs)
-        assertEquals(25, d.sampleRateHz)
+        assertEquals(25, d.sampleCount)      // a COUNT; v20 publishes no rate (span unproven)
 
         // Exactly blocks 0/3/4 active on every captured buffer -> six channels; blocks 1/2 emit nothing.
         assertEquals(6, d.channels.size)
@@ -151,13 +151,6 @@ class Whoop5RawV20Test {
         assertNull("wrong layout version", Whoop5RawV20.decode(syntheticFrame { it[9] = 18 }))
         assertNull("wrong packet type", Whoop5RawV20.decode(syntheticFrame { it[8] = 0x31 }))
         assertNull("short frame", Whoop5RawV20.decode(ByteArray(2139).also { it[8] = 0x2F; it[9] = 20 }))
-    }
-
-    /** Sample timestamps spread evenly across the record's second at 25 Hz. */
-    @Test fun sampleTimestampsSpreadAcrossTheSecond() {
-        val d = Whoop5RawV20.decode(syntheticFrame { putU32(it, 15, 1784054004L) })!!
-        assertEquals(1784054004.0, d.ts(0), 1e-9)
-        assertEquals(1784054004.96, d.ts(24), 1e-9)
     }
 
     private fun hexToBytes(hex: String): ByteArray =
