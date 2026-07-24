@@ -115,6 +115,21 @@ enum ChargeBreakdownFormat {
         return n == 1 ? String(localized: "1 night to go") : String(localized: "\(n) nights to go")
     }
 
+    /// #731: names WHY the countdown restarted when the user tapped "Recalibrate baseline".
+    ///
+    /// The count alone is not enough. A reporter sat at "Calibrating, 3 of 4 nights" with 15 valid HRV
+    /// nights on file and tapped Recalibrate again — which discards every earlier night and resets the
+    /// count to 0. Two weeks of that and Charge could never return. Seeing the countdown without knowing
+    /// their own tap caused it makes re-tapping the natural move; naming the cause is what breaks the loop.
+    ///
+    /// A separate whole sentence rather than a fragment appended to the countdown, so translators never
+    /// see a stitched string. Returns nil when no recalibration is set, so the card is unchanged for every
+    /// user who never tapped it. Pure.
+    static func calibrationRestartCause(recalibratedOn day: String?) -> String? {
+        guard let day, !day.isEmpty else { return nil }
+        return String(localized: "Restarted when you recalibrated on \(day) — no need to tap it again.")
+    }
+
     /// The supporting line under the countdown, naming the score whose baseline is unlocking. Pure.
     /// `scoreName` is the user-facing score word (e.g. "Charge"); kept a parameter so the same copy
     /// serves any baseline-building score honestly without hard-coding one.

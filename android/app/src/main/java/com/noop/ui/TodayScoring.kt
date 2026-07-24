@@ -217,6 +217,25 @@ sealed class ScoreState {
             NeedsStrap -> "Needs the strap"
         }
 
+    /**
+     * #731: names WHY the countdown restarted when the user tapped "Recalibrate baseline".
+     *
+     * The count alone is not enough. A reporter sat at "Calibrating, 3 of 4 nights" with 15 valid HRV
+     * nights on file and tapped Recalibrate again — which discards every earlier night and resets the
+     * count to 0. Two weeks of that and Charge could never return. Seeing the countdown without knowing
+     * their own tap caused it makes re-tapping the natural move; naming the cause breaks the loop.
+     *
+     * A separate whole sentence, not a fragment stitched onto the countdown. Returns null when no
+     * recalibration is set, so the card is unchanged for every user who never tapped it. Pure.
+     * Twin of Swift `ChargeBreakdownFormat.calibrationRestartCause`.
+     */
+    companion object {
+        fun calibrationRestartCause(recalibratedOn: String?): String? {
+            if (recalibratedOn.isNullOrEmpty()) return null
+            return "Restarted when you recalibrated on $recalibratedOn — no need to tap it again."
+        }
+    }
+
     /** The one-line plain-English what-to-do. VERBATIM, mirror Swift exactly. The night(s) plural in
      *  the calibrating copy follows [nightsRemaining]. */
     val detail: String
