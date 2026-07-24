@@ -1233,14 +1233,7 @@ fun TodayScreen(
             // small × tucks it into Updates so it isn't a fixed fixture between the header and the hero.
             if (selectedDayOffset == 0 && scoreState is ScoreState.CarriedLastNight && !carriedSleepDismissed) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    ScoreStateNote(
-                        scoreState,
-                        restartCause = ScoreState.calibrationRestartCause(
-                            ScoreState.recalibrationDay(
-                                NoopPrefs.of(context).getLong(Baselines.hrvBaselineEpochKey, 0L),
-                            ),
-                        ),
-                    )
+                    ScoreStateNote(scoreState)
                     if (updateStore != null) {
                         TodayCardDismissButton(
                             modifier = Modifier.align(Alignment.TopEnd),
@@ -1259,7 +1252,14 @@ fun TodayScreen(
             // Today" tap there flips calibratingDismissed back via the shared restore path above.
             if (selectedDayOffset == 0 && scoreState is ScoreState.Calibrating && !calibratingDismissed) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    ScoreStateNote(scoreState)
+                    ScoreStateNote(
+                        scoreState,
+                        restartCause = ScoreState.calibrationRestartCause(
+                            ScoreState.recalibrationDay(
+                                NoopPrefs.of(context).getLong(Baselines.hrvBaselineEpochKey, 0L),
+                            ),
+                        ),
+                    )
                     if (updateStore != null) {
                         TodayCardDismissButton(
                             modifier = Modifier.align(Alignment.TopEnd),
