@@ -8,6 +8,8 @@ import com.noop.analytics.RestScorer
 import com.noop.analytics.ScoreConfidence
 import com.noop.data.DailyMetric
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -230,6 +232,18 @@ sealed class ScoreState {
      * Twin of Swift `ChargeBreakdownFormat.calibrationRestartCause`.
      */
     companion object {
+        /** The recalibration epoch (seconds) as a short display day ("19 Jul"), or null when none is
+         *  set. Pure - the caller reads the pref. Twin of Swift
+         *  `ChargeBreakdownFormat.recalibrationDay(epoch:)`; uses the same "d MMM" pattern as the
+         *  sibling day formatter in this file. (#731) */
+        fun recalibrationDay(epochSeconds: Long): String? {
+            if (epochSeconds <= 0L) return null
+            return Instant.ofEpochSecond(epochSeconds)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+                .format(DateTimeFormatter.ofPattern("d MMM", Locale.US))
+        }
+
         fun calibrationRestartCause(recalibratedOn: String?): String? {
             if (recalibratedOn.isNullOrEmpty()) return null
             return "Restarted when you recalibrated on $recalibratedOn — no need to tap it again."
