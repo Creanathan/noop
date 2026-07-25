@@ -343,6 +343,36 @@ public enum HRVAnalyzer {
 
     // MARK: - R-R integrity diagnostics (#257)
 
+    /// What a night's R-R coverage pair says about the capture (#550).
+    ///
+    /// `rrCoverage` above 1.0 is physically impossible, and `collapsedCoverage` previews what a
+    /// same-second de-dup would leave. Reading the two together is what tells you WHICH over-count you
+    /// have — a rule that until now lived only in a comment, so anyone triaging an "HRV reads ~2× high"
+    /// report had to know it. Encoding it means the log states the conclusion instead of the evidence.
+    public enum RrCoverageVerdict: String, Equatable, Sendable {
+        /// At or near 1.0 — the beat-time fits the wall clock. Nothing to explain.
+        case plausible
+        /// Over-covered, but collapsing same-second duplicates brings it back in range: the extra beats
+        /// share a timestamp, so a de-dup at that granularity would fix it.
+        case sameSecondOverCount
+        /// Over-covered AND still over-covered after the same-second collapse: the duplicates straddle
+        /// second boundaries, so a same-second de-dup would NOT be enough.
+        case crossSecondOverCount
+    }
+
+    /// Tolerance above 1.0 treated as "fits". R-R timestamps are whole seconds while beats are not, so a
+    /// clean night can round fractionally over. This is a ROUNDING allowance, deliberately not a tuned
+    /// threshold — where the real boundary sits needs coverage figures from several wearers, which is the
+    /// point of logging the verdict in the first place.
+    public static let coveragePlausibleCeiling: Double = 1.10
+
+    /// Classify a night from its coverage pair. Pure. Byte-parity twin of Kotlin `classifyCoverage`.
+    public static func classifyCoverage(coverage: Double, collapsed: Double) -> RrCoverageVerdict {
+        guard coverage > coveragePlausibleCeiling else { return .plausible }
+        return collapsed > coveragePlausibleCeiling ? .crossSecondOverCount : .sameSecondOverCount
+    }
+
+
     /// Total heartbeat-time (sum of NN intervals, ms) ÷ wall-clock span of the R-R window (ms). A value
     /// > ~1.0 is physically impossible — you can't record more beat-time than elapsed time — so it
     /// directly flags DOUBLE-COUNTED / overlapping R-R (e.g. a live + historical merge storing the same

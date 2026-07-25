@@ -614,8 +614,15 @@ object IntelligenceEngine {
                 // over-count is same-second (a dedup fix would work); still high ⇒ cross-second overlap.
                 val colCov = String.format(java.util.Locale.US, "%.2f", HrvAnalyzer.collapsedCoverage(ts, sleepRr))
                 val dup = HrvAnalyzer.duplicateBeatCount(ts, sleepRr)
+                // #550: state the CONCLUSION, not just the evidence. Reading coverage against collapsedCov
+                // is what distinguishes a same-second over-count (a de-dup would fix it) from a cross-second
+                // one (it would not) — a rule that lived only in the comments above, so triaging an
+                // "HRV reads ~2x high" report required knowing it. Now the line says which.
+                val verdict = HrvAnalyzer.classifyCoverage(
+                    HrvAnalyzer.rrCoverage(ts, sleepRr), HrvAnalyzer.collapsedCoverage(ts, sleepRr))
                 diag("hrv diag day=${res.daily.day} rmssd=${ms(h.rmssd)}ms sdnn=${ms(h.sdnn)}ms meanNN=${ms(h.meanNN)}ms " +
-                    "rr=${h.nInput}/${h.nClean} rejected=$rej% coverage=$cov collapsedCov=$colCov dupBeats=$dup")
+                    "rr=${h.nInput}/${h.nClean} rejected=$rej% coverage=$cov collapsedCov=$colCov dupBeats=$dup " +
+                    "rrIntegrity=${verdict.raw}")
             }
 
             // Steps test mode: emit the 5/MG raw-counter trace for this day (cumulative @57 series +
