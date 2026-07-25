@@ -34,7 +34,9 @@ gh auth status >/dev/null 2>&1 || { echo "error: gh is not authenticated (run: g
 # day, so it re-credits everything merged earlier on release day — work that shipped in the PREVIOUS
 # release. On v9.0.2 (tagged 06:15Z) that was 14 PRs. GitHub search honours an ISO8601 instant, so use one.
 if git rev-parse -q --verify "refs/tags/$SINCE_INPUT" >/dev/null 2>&1; then
-  SINCE="$(date -u -d "$(git log -1 --format=%cI "refs/tags/$SINCE_INPUT")" +%Y-%m-%dT%H:%M:%SZ)"
+  # git does the UTC conversion, not `date -u -d`: that flag is GNU-only, and on the macOS where releases
+  # are actually cut BSD date's -d means daylight-savings, so the tag path would die under `set -e`.
+  SINCE="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "refs/tags/$SINCE_INPUT")"
   echo "# since tag $SINCE_INPUT ($SINCE)"
 else
   SINCE="$SINCE_INPUT"
@@ -60,13 +62,14 @@ drop_maintainers() {
 # MAINTAINER-authored issue leaks its title fragments into the third-party listing. Flatten first.
 JQ_ROW='.[] | "\(.author.login)\t#\(.number)\t\(.title | gsub("[\r\n\t]+"; " "))"'
 
-# Only COMPLETED issues. A report closed as not-planned or duplicate did not drive a fix, and crediting it
-# is the same kind of noise the handle convention exists to remove.
 prs="$(gh pr list --repo "$REPO" --state merged --limit "$LIMIT" \
         --search "merged:>=$SINCE" --json number,author,title --jq "$JQ_ROW")"
-issues="$(gh issue list --repo "$REPO" --state closed --limit "$LIMIT" \
+# stateReason rides along as a 4th column so the truncation guard below can count what was FETCHED.
+# Filtering inside the jq would hide truncation: 300 issues fetched of which 260 are completed leaves 260
+# rows, under the limit, and the guard stays silent about the 300-item wall it just hit.
+issues_raw="$(gh issue list --repo "$REPO" --state closed --limit "$LIMIT" \
         --search "closed:>=$SINCE" --json number,author,title,stateReason \
-        --jq '[.[] | select(.stateReason == "COMPLETED")] | '"$JQ_ROW")"
+        --jq '.[] | "\(.author.login)\t#\(.number)\t\(.title | gsub("[\r\n\t]+"; " "))\t\(.stateReason // "NULL")"')"
 
 # A silent top-N cap would read as "that is everyone" when it is not.
 warn_if_truncated() {   # warn_if_truncated <what> <rows>
@@ -75,7 +78,12 @@ warn_if_truncated() {   # warn_if_truncated <what> <rows>
   fi
 }
 warn_if_truncated "pull requests" "$prs"
-warn_if_truncated "issues" "$issues"
+warn_if_truncated "issues" "$issues_raw"
+
+# Only COMPLETED issues. A report closed as not-planned or duplicate did not drive a fix, and crediting it
+# is the same kind of noise the handle convention exists to remove. (Checked: this repo has no closed issue
+# with a null reason, so nothing legitimately fixed is dropped by requiring the field.)
+issues="$(printf '%s\n' "$issues_raw" | awk -F'\t' '$4 == "COMPLETED" { print $1 "\t" $2 "\t" $3 }')"
 
 section() {   # section <heading> <rows>
   echo
