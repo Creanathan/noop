@@ -173,6 +173,18 @@ Swift, you MUST build the app yourself: `xcodebuild … build` locally, or run `
   `android/app/build.gradle.kts` together; build numbers increment independently. The parts are
   counters, not decimals (`2.0.10` follows `2.0.9`).
 - **Voice:** docs/comments are neutral, third-person, project-voice. Keep upstream credits intact.
+- **Release-note credits use GitHub handles (#736).** In a release's contributor section, credit
+  **third-party** work by `@handle`, not by display name — a plain name is invisible to GitHub, so it
+  neither notifies the contributor nor links to their profile. A display name may accompany the handle,
+  but the handle is what makes the credit real: `Thanks to @tigercraft4 (Sleep/Health refactors),
+  @digitalerdude (workout backfill), …`.
+  - Credit both **merged PR authors** and the **issue reporters** whose reports drove a fix — a good bug
+    report with a strap log is often the harder half.
+  - **Only third-party contributors.** The maintainer's own handles (`@ryanbr` / `@Fanboynz`) are left
+    out: self-credit adds noise and self-mentions notify nobody.
+  - Collect the handles from the merged PRs and closed issues in the release range (e.g.
+    `gh pr list --state merged --search "merged:>=<date>" --json number,author`), so nobody is missed
+    when the notes are written by hand.
 
 When in doubt, open an issue to coordinate first, and prefer the smallest change that's correct and
 covered by a test that runs without a strap.
