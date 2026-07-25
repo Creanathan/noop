@@ -49,11 +49,16 @@ LIMIT=300
 
 # Field-exact, case-insensitive. The rows are "handle<TAB>#N<TAB>title", so a whole-line anchor never
 # matches and the maintainer leaks through; compare only field 1.
-drop_maintainers() {
+#
+# Bot accounts are dropped in the same pass. This repo has none today, so it is precaution rather than a
+# fix: nothing in the release flow would stop a merged Dependabot PR from putting "@dependabot[bot]" in a
+# published credit line, and a bot is not someone to thank. GitHub suffixes every bot login with "[bot]".
+drop_uncredited() {
   awk -F'\t' -v ex="$MAINTAINERS" '
     BEGIN { n = split(tolower(ex), m, ",") }
     { h = tolower($1); skip = 0
       for (i = 1; i <= n; i++) if (h == m[i]) skip = 1
+      if (h ~ /\[bot\]$/) skip = 1
       if (!skip) print }'
 }
 
@@ -90,7 +95,7 @@ section() {   # section <heading> <rows>
   echo "$1"
   # Emptiness is judged AFTER filtering: rows that exist but are all the maintainer's still mean
   # "nothing to credit here", and a bare heading reads as a glitch rather than an answer.
-  local kept; kept="$(printf '%s\n' "$2" | drop_maintainers | grep -v '^$' | sort -f || true)"
+  local kept; kept="$(printf '%s\n' "$2" | drop_uncredited | grep -v '^$' | sort -f || true)"
   if [ -z "$kept" ]; then echo "(none)"; else printf '%s\n' "$kept"; fi
 }
 section "## Merged PRs by third-party contributors"                       "$prs"
@@ -99,7 +104,7 @@ section "## Issues reported by third-party contributors (closed as completed)" "
 echo
 echo "## Credit line (add what each person contributed, then paste into the release notes)"
 # Derived from the rows already fetched, so the line can never disagree with the listings above.
-handles="$(printf '%s\n%s\n' "$prs" "$issues" | drop_maintainers | cut -f1 | grep -v '^$' | sort -uf || true)"
+handles="$(printf '%s\n%s\n' "$prs" "$issues" | drop_uncredited | cut -f1 | grep -v '^$' | sort -uf || true)"
 if [ -z "$handles" ]; then
   # Legitimate for a maintainer-only hotfix. Emitting a dangling "Thanks to" would be worse than saying so,
   # and exiting non-zero here (grep finding no match under pipefail) made the tool look broken.
