@@ -35,10 +35,20 @@ final class RrCoverageVerdictTests: XCTestCase {
                        .sameSecondOverCount)
     }
 
-    /// `rrCoverage` returns 0 for a window it cannot measure (< 2 beats / zero span). That is an absence
-    /// of evidence, not a clean night, but it must not read as over-covered either.
-    func testUnmeasurableWindowIsNotFlagged() {
-        XCTAssertEqual(HRVAnalyzer.classifyCoverage(coverage: 0, collapsed: 0), .plausible)
+    /// `rrCoverage` returns 0 for a window it cannot measure (< 2 beats / zero span). Absence of evidence
+    /// is not a clean night — calling it `plausible` would claim the capture was fine when nothing was
+    /// measurable, which is exactly what this verdict exists to avoid.
+    func testUnmeasurableWindowIsNotReportedAsClean() {
+        XCTAssertEqual(HRVAnalyzer.classifyCoverage(coverage: 0, collapsed: 0), .unmeasurable)
+        XCTAssertEqual(HRVAnalyzer.classifyCoverage(coverage: -1, collapsed: 0), .unmeasurable)
+    }
+
+    /// Parity guard. Every IEEE-754 comparison with NaN is false, so `<=` and `>` are not each other's
+    /// inverse there — writing one platform with `<=` and the other with `>` made the twins disagree on a
+    /// NaN coverage (Swift said plausible, Kotlin said sameSecondOverCount). Both now negate `>`.
+    func testNonFiniteCoverageIsUnmeasurableOnBothPlatforms() {
+        XCTAssertEqual(HRVAnalyzer.classifyCoverage(coverage: .nan, collapsed: 0.5), .unmeasurable)
+        XCTAssertEqual(HRVAnalyzer.classifyCoverage(coverage: .nan, collapsed: .nan), .unmeasurable)
     }
 
     /// The verdict is only ever a function of the pair, never of which is larger — a collapse can never

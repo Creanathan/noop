@@ -57,15 +57,32 @@ class RrCoverageVerdictTest {
         )
     }
 
+    @Test
+    fun unmeasurableWindowIsNotReportedAsClean() {
+        assertEquals(
+            HrvAnalyzer.RrCoverageVerdict.UNMEASURABLE,
+            HrvAnalyzer.classifyCoverage(0.0, 0.0),
+        )
+        assertEquals(
+            HrvAnalyzer.RrCoverageVerdict.UNMEASURABLE,
+            HrvAnalyzer.classifyCoverage(-1.0, 0.0),
+        )
+    }
+
     /**
-     * `rrCoverage` returns 0.0 for a window it cannot measure (< 2 beats / zero span). That is an absence
-     * of evidence, not a clean night, but it must not read as over-covered either.
+     * Parity guard. Every IEEE-754 comparison with NaN is false, so `<=` and `>` are not each other's
+     * inverse there — writing one platform with `<=` and the other with `>` made the twins disagree on a
+     * NaN coverage (Swift said plausible, Kotlin said SAME_SECOND_OVER_COUNT). Both now negate `>`.
      */
     @Test
-    fun unmeasurableWindowIsNotFlagged() {
+    fun nonFiniteCoverageIsUnmeasurableOnBothPlatforms() {
         assertEquals(
-            HrvAnalyzer.RrCoverageVerdict.PLAUSIBLE,
-            HrvAnalyzer.classifyCoverage(0.0, 0.0),
+            HrvAnalyzer.RrCoverageVerdict.UNMEASURABLE,
+            HrvAnalyzer.classifyCoverage(Double.NaN, 0.5),
+        )
+        assertEquals(
+            HrvAnalyzer.RrCoverageVerdict.UNMEASURABLE,
+            HrvAnalyzer.classifyCoverage(Double.NaN, Double.NaN),
         )
     }
 

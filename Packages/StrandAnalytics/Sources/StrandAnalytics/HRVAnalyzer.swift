@@ -358,6 +358,10 @@ public enum HRVAnalyzer {
         /// Over-covered AND still over-covered after the same-second collapse: the duplicates straddle
         /// second boundaries, so a same-second de-dup would NOT be enough.
         case crossSecondOverCount
+        /// No usable coverage figure — `rrCoverage` returns 0 for < 2 beats or a zero span. Absence of
+        /// evidence, NOT a clean night: reporting those as `plausible` would claim the capture was fine
+        /// when nothing was measurable, which is the opposite of what this verdict exists to do.
+        case unmeasurable
     }
 
     /// Tolerance above 1.0 treated as "fits". R-R timestamps are whole seconds while beats are not, so a
@@ -367,11 +371,14 @@ public enum HRVAnalyzer {
     public static let coveragePlausibleCeiling: Double = 1.10
 
     /// Classify a night from its coverage pair. Pure. Byte-parity twin of Kotlin `classifyCoverage`.
+    /// Both platforms use the NEGATED `>` form rather than `<=` so a non-finite input lands identically:
+    /// every IEEE-754 comparison with NaN is false, so `<=` and `>` are not each other's inverse there and
+    /// the twins would otherwise disagree. NaN falls to `.unmeasurable` on both.
     public static func classifyCoverage(coverage: Double, collapsed: Double) -> RrCoverageVerdict {
+        guard coverage > 0 else { return .unmeasurable }
         guard coverage > coveragePlausibleCeiling else { return .plausible }
         return collapsed > coveragePlausibleCeiling ? .crossSecondOverCount : .sameSecondOverCount
     }
-
 
     /// Total heartbeat-time (sum of NN intervals, ms) ÷ wall-clock span of the R-R window (ms). A value
     /// > ~1.0 is physically impossible — you can't record more beat-time than elapsed time — so it

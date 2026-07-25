@@ -327,6 +327,10 @@ object HrvAnalyzer {
         /** Over-covered AND still over-covered after the same-second collapse: the duplicates straddle
          *  second boundaries, so a same-second de-dup would NOT be enough. */
         CROSS_SECOND_OVER_COUNT("crossSecondOverCount"),
+        /** No usable coverage figure — [rrCoverage] returns 0.0 for < 2 beats or a zero span. Absence of
+         *  evidence, NOT a clean night: reporting those as plausible would claim the capture was fine when
+         *  nothing was measurable, which is the opposite of what this verdict exists to do. */
+        UNMEASURABLE("unmeasurable"),
     }
 
     /** Tolerance above 1.0 treated as "fits". R-R timestamps are whole seconds while beats are not, so a
@@ -336,8 +340,12 @@ object HrvAnalyzer {
     const val COVERAGE_PLAUSIBLE_CEILING: Double = 1.10
 
     /** Classify a night from its coverage pair. Pure. Byte-parity twin of Swift `classifyCoverage`. */
+    /** Both platforms use the NEGATED `>` form rather than `<=` so a non-finite input lands identically:
+     *  every IEEE-754 comparison with NaN is false, so `<=` and `>` are not each other's inverse there and
+     *  the twins would otherwise disagree. NaN falls to UNMEASURABLE on both. */
     fun classifyCoverage(coverage: Double, collapsed: Double): RrCoverageVerdict {
-        if (coverage <= COVERAGE_PLAUSIBLE_CEILING) return RrCoverageVerdict.PLAUSIBLE
+        if (!(coverage > 0.0)) return RrCoverageVerdict.UNMEASURABLE
+        if (!(coverage > COVERAGE_PLAUSIBLE_CEILING)) return RrCoverageVerdict.PLAUSIBLE
         return if (collapsed > COVERAGE_PLAUSIBLE_CEILING) RrCoverageVerdict.CROSS_SECOND_OVER_COUNT
         else RrCoverageVerdict.SAME_SECOND_OVER_COUNT
     }
