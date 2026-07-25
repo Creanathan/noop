@@ -904,6 +904,27 @@ class WhoopBleClient(
          * Literal codes rather than `BluetoothStatusCodes` constants: these are compile-time-inlined API 33
          * values, and spelling them out keeps this readable in a log review and buildable on any compileSdk.
          */
+        /**
+         * #791: may a write-completion callback cancel the BUSY-retry currently held?
+         *
+         * Yes exactly when a frame is held for retry and the completion is for a command-channel write. A
+         * completion for a frame the stack claimed to refuse proves the refusal was wrong and the frame went
+         * out, so repeating it delivers the same command to the strap twice — the reported symptom, where one
+         * GET_DATA_RANGE drew three responses carrying one unchanged origin-seq echo.
+         *
+         * This cannot swallow a legitimate retry. `pendingRetry` is non-null only when the MOST RECENT write
+         * attempt returned BUSY, and the drain never starts a write while one is in flight, so no other
+         * outstanding command-channel write could own this completion. A frame the stack truly refused
+         * produces no completion at all, leaving its retry to fire — the #77/#312 protection against a
+         * silently dropped TOGGLE_REALTIME_HR / SET_CLOCK / offload-ack is untouched.
+         *
+         * Pure so it can be tested: the instance-level path cannot be, since the constructor needs a real
+         * Looper and Context (see [GattCrashSafetyTest]'s infra note).
+         */
+        fun shouldCancelBusyRetryOnCompletion(writtenChar: UUID?, hasFrameHeldForRetry: Boolean): Boolean =
+            hasFrameHeldForRetry &&
+                (writtenChar == CMD_WRITE_CHAR || writtenChar == WHOOP5_CMD_WRITE_CHAR)
+
         fun writeStatusLabel(status: Int?): String = when (status) {
             null -> "status=n/a(legacy-api)"
             0 -> "status=SUCCESS(0)"          // BluetoothStatusCodes.SUCCESS — should not reach the busy path
@@ -2191,6 +2212,28 @@ class WhoopBleClient(
      *  teardown path can cancel a still-pending retry — otherwise a queued retry fires after the link is
      *  dead and re-enters the now-dead write, re-throwing `DeadObjectException` (#314). */
     private val drainWriteRetryRunnable = Runnable { drainWriteQueue() }
+
+    /**
+     * #791: drop a scheduled BUSY-retry because the write it would repeat has just completed.
+     *
+     * Called from `onCharacteristicWrite` (via the main looper, since [pendingRetry] is main-looper-only
+     * state). A completion for a frame the stack said it refused means the refusal was wrong and the frame
+     * went out, so repeating it would deliver the same command to the strap twice. Not re-draining here: the
+     * caller's own `drainWriteQueue()` follows on the same looper and picks up the next queued frame.
+     *
+     * No-op when nothing is held for retry, which is the normal case for every successful write.
+     */
+    private fun cancelRetryOfWriteDeliveredDespiteBusy(writtenChar: UUID?) {
+        if (!shouldCancelBusyRetryOnCompletion(writtenChar, pendingRetry != null)) return
+        val delivered = pendingRetry ?: return
+        pendingRetry = null
+        writeRetries = 0
+        handler.removeCallbacks(drainWriteRetryRunnable)
+        log(
+            "write reported busy but then completed — dropping the duplicate retry of " +
+                "${delivered.cmd?.name ?: "raw frame"} (#791)",
+        )
+    }
 
     /** Descriptor-write queue: enabling notifications is also a one-at-a-time GATT operation. */
     private val cccdQueue = ConcurrentLinkedQueue<BluetoothGattCharacteristic>()
@@ -4189,6 +4232,21 @@ class WhoopBleClient(
                 noteRebootReconnectIfNeeded()
                 runConnectHandshake()
             }
+
+            // #791: a completion callback arriving while a BUSY-refused frame is STILL held for retry is
+            // proof that write was delivered after all — the stack refused it and sent it anyway. Cancel the
+            // retry, or the strap receives the same command twice. Observed on a Galaxy S24 Ultra: one
+            // GET_DATA_RANGE produced three CRC-valid responses with advancing strap-side sequence numbers
+            // and one unchanged origin-seq echo, always after a burst of busy-retries and never without.
+            //
+            // This cannot cancel a legitimate retry. `pendingRetry` is non-null only when the MOST RECENT
+            // write attempt returned BUSY, and the drain never starts a write while one is in flight, so
+            // there is no other outstanding write this completion could belong to. A frame the stack truly
+            // refused produces no completion at all, so its retry still fires — the #77/#312 protection
+            // against a silently dropped TOGGLE_REALTIME_HR / SET_CLOCK / offload-ack is untouched.
+            // Hops to the main looper because pendingRetry is main-looper-only state, and it is read there
+            // rather than here. Posted with no delay, so it runs ahead of the >=12 ms retry it cancels.
+            handler.post { cancelRetryOfWriteDeliveredDespiteBusy(characteristic.uuid) }
 
             // This with-response write is done; release the in-flight slot and send the next.
             writeInFlight = false
