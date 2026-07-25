@@ -38,9 +38,21 @@ if git rev-parse -q --verify "refs/tags/$SINCE_INPUT" >/dev/null 2>&1; then
   # are actually cut BSD date's -d means daylight-savings, so the tag path would die under `set -e`.
   SINCE="$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ "refs/tags/$SINCE_INPUT")"
   echo "# since tag $SINCE_INPUT ($SINCE)"
-else
+elif printf '%s' "$SINCE_INPUT" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}Z?)?$'; then
   SINCE="$SINCE_INPUT"
   echo "# since $SINCE"
+else
+  # Anything unrecognised must be rejected, not passed through as a date. Tags here are v-prefixed, so
+  # "9.0.2" is the natural typo — and GitHub search swallows "merged:>=9.0.2" without complaint, returning
+  # nothing. The author then reads "(none)" as "no third-party contributors" and ships notes crediting
+  # nobody: the same silent miss the gh preflight exists to prevent, arriving through a different door.
+  echo "error: '$SINCE_INPUT' is neither an existing tag nor a YYYY-MM-DD date." >&2
+  case "$SINCE_INPUT" in
+    [0-9]*.[0-9]*) echo "       tags in this repo are v-prefixed — did you mean v$SINCE_INPUT?" >&2 ;;
+  esac
+  echo "       recent tags:" >&2
+  git tag --sort=-creatordate 2>/dev/null | head -5 | sed 's/^/         /' >&2
+  exit 2
 fi
 
 MAINTAINERS="${MAINTAINERS:-ryanbr,Fanboynz}"
@@ -55,9 +67,12 @@ LIMIT=300
 # published credit line, and a bot is not someone to thank. GitHub suffixes every bot login with "[bot]".
 drop_uncredited() {
   awk -F'\t' -v ex="$MAINTAINERS" '
-    BEGIN { n = split(tolower(ex), m, ",") }
+    # Entries are trimmed: MAINTAINERS="digitalerdude, ryanbr" is how a human writes a two-name list, and
+    # an untrimmed " ryanbr" matches nothing — putting the maintainer back in their own credit line.
+    BEGIN { n = split(tolower(ex), m, ",")
+            for (i = 1; i <= n; i++) gsub(/^[ \t]+|[ \t]+$/, "", m[i]) }
     { h = tolower($1); skip = 0
-      for (i = 1; i <= n; i++) if (h == m[i]) skip = 1
+      for (i = 1; i <= n; i++) if (m[i] != "" && h == m[i]) skip = 1
       if (h ~ /\[bot\]$/) skip = 1
       if (!skip) print }'
 }
