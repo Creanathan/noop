@@ -18,6 +18,11 @@ import org.junit.Test
  * callback — the proof that the refused write actually landed — left the retry armed. Now a completion
  * cancels it.
  *
+ * Limited to WITH-response writes by nature, since a without-response write gets no completion callback at
+ * all. That covers the reported command and the ones where a duplicate actually harms — `GET_DATA_RANGE`,
+ * `SET_CLOCK`, the historical acks, haptics and `RUN_ALARM` are all sent with response — but it is a limit,
+ * not a general guarantee.
+ *
  * Pins the pure decision only. The instance-level sequencing cannot be exercised in this harness: the
  * constructor builds a `Handler(Looper.getMainLooper())` and calls `context.getSystemService(...)`, both of
  * which throw against the stub `android.jar`, and the project ships no Robolectric — the same constraint
@@ -32,13 +37,13 @@ class BusyRetryDuplicateWriteTest {
     /** The bug: a completion arrived for a frame still held for retry, and the retry fired anyway. */
     @Test
     fun completionWhileAFrameIsHeldForRetryCancelsIt() {
-        assertTrue(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop4Cmd, hasFrameHeldForRetry = true))
+        assertTrue(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop4Cmd, hasFrameHeldForRetry = true, isBondWriteCompletion = false))
     }
 
     /** Both families write commands on their own characteristic; neither may duplicate. */
     @Test
     fun bothFamiliesCommandChannelsQualify() {
-        assertTrue(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop5Cmd, hasFrameHeldForRetry = true))
+        assertTrue(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop5Cmd, hasFrameHeldForRetry = true, isBondWriteCompletion = false))
     }
 
     /**
@@ -48,8 +53,8 @@ class BusyRetryDuplicateWriteTest {
      */
     @Test
     fun completionWithNothingHeldIsANoOp() {
-        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop4Cmd, hasFrameHeldForRetry = false))
-        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop5Cmd, hasFrameHeldForRetry = false))
+        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop4Cmd, hasFrameHeldForRetry = false, isBondWriteCompletion = false))
+        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(whoop5Cmd, hasFrameHeldForRetry = false, isBondWriteCompletion = false))
     }
 
     /**
@@ -58,8 +63,28 @@ class BusyRetryDuplicateWriteTest {
      */
     @Test
     fun completionOnAnotherCharacteristicNeverCancels() {
-        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(someOtherChar, hasFrameHeldForRetry = true))
-        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(null, hasFrameHeldForRetry = true))
+        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(someOtherChar, hasFrameHeldForRetry = true, isBondWriteCompletion = false))
+        assertFalse(WhoopBleClient.shouldCancelBusyRetryOnCompletion(null, hasFrameHeldForRetry = true, isBondWriteCompletion = false))
+    }
+
+    /**
+     * The case a re-review turned up. [WhoopBleClient.writeBondFrame] writes to the SAME characteristic
+     * deliberately outside the queue and does not consume `pendingRetry`, so its ack is not evidence that a
+     * held frame went out. Cancelling on it would drop a frame that never left — converting the duplicate
+     * this fixes into the silent loss #77/#312 is about, which is strictly worse than a duplicate.
+     */
+    @Test
+    fun theOutOfQueueBondWriteCompletionNeverCancels() {
+        assertFalse(
+            WhoopBleClient.shouldCancelBusyRetryOnCompletion(
+                whoop4Cmd, hasFrameHeldForRetry = true, isBondWriteCompletion = true,
+            ),
+        )
+        assertFalse(
+            WhoopBleClient.shouldCancelBusyRetryOnCompletion(
+                whoop5Cmd, hasFrameHeldForRetry = true, isBondWriteCompletion = true,
+            ),
+        )
     }
 
     /** The refusal codes the log must be able to tell apart, since only one of them means "safe to retry". */

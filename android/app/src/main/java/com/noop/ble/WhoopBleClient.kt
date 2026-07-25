@@ -912,17 +912,33 @@ class WhoopBleClient(
          * out, so repeating it delivers the same command to the strap twice — the reported symptom, where one
          * GET_DATA_RANGE drew three responses carrying one unchanged origin-seq echo.
          *
-         * This cannot swallow a legitimate retry. `pendingRetry` is non-null only when the MOST RECENT write
-         * attempt returned BUSY, and the drain never starts a write while one is in flight, so no other
-         * outstanding command-channel write could own this completion. A frame the stack truly refused
-         * produces no completion at all, leaving its retry to fire — the #77/#312 protection against a
-         * silently dropped TOGGLE_REALTIME_HR / SET_CLOCK / offload-ack is untouched.
+         * `pendingRetry` is non-null only when the most recent DRAINED write returned BUSY, and the drain
+         * never starts a write while one is in flight — so within the drain there is no other outstanding
+         * command-channel write this completion could belong to. A frame the stack truly refused produces no
+         * completion at all, leaving its retry to fire, so the #77/#312 protection against a silently dropped
+         * TOGGLE_REALTIME_HR / SET_CLOCK / offload-ack is untouched.
+         *
+         * [writeBondFrame] is the exception that forces the third argument: it writes to the same
+         * characteristic DELIBERATELY outside the queue, so its completion is not evidence about the held
+         * frame. Acting on it would cancel a retry for a frame that never went out — turning the duplicate
+         * this fixes into the silent loss #77/#312 is about, which is strictly worse. Excluded explicitly.
+         *
+         * Only WITH-response writes reach here at all: a without-response write gets no completion callback
+         * (the drain frees its own slot after a pacing gap), so this cannot help those. That happens to cover
+         * the reported case and the commands where a duplicate actually harms — GET_DATA_RANGE, SET_CLOCK,
+         * the historical acks, haptics and RUN_ALARM are all sent with response — but it is a real limit, not
+         * a general guarantee.
          *
          * Pure so it can be tested: the instance-level path cannot be, since the constructor needs a real
          * Looper and Context (see [GattCrashSafetyTest]'s infra note).
          */
-        fun shouldCancelBusyRetryOnCompletion(writtenChar: UUID?, hasFrameHeldForRetry: Boolean): Boolean =
+        fun shouldCancelBusyRetryOnCompletion(
+            writtenChar: UUID?,
+            hasFrameHeldForRetry: Boolean,
+            isBondWriteCompletion: Boolean,
+        ): Boolean =
             hasFrameHeldForRetry &&
+                !isBondWriteCompletion &&
                 (writtenChar == CMD_WRITE_CHAR || writtenChar == WHOOP5_CMD_WRITE_CHAR)
 
         fun writeStatusLabel(status: Int?): String = when (status) {
@@ -2202,6 +2218,11 @@ class WhoopBleClient(
     // write-completion callbacks - the barrier guarantees the main-thread drain sees the flag flip promptly
     // (else a queued write could stall until the next drain trigger).
     @Volatile private var writeInFlight = false
+    /** #791: set while [writeBondFrame]'s out-of-queue confirmed write is outstanding, so its completion is
+     *  not mistaken for evidence about a frame held for retry. @Volatile: set on the main looper, read and
+     *  cleared from the GATT binder thread in onCharacteristicWrite. */
+    @Volatile private var bondWriteOutstanding = false
+
     /** A frame being retried after a transient BUSY rejection. Held here rather than re-added to the
      *  queue so it keeps its place AHEAD of later commands — command order matters (e.g. SET_CLOCK
      *  before GET_CLOCK). Only ever touched on the main looper inside [drainWriteQueue]. */
@@ -2223,8 +2244,8 @@ class WhoopBleClient(
      *
      * No-op when nothing is held for retry, which is the normal case for every successful write.
      */
-    private fun cancelRetryOfWriteDeliveredDespiteBusy(writtenChar: UUID?) {
-        if (!shouldCancelBusyRetryOnCompletion(writtenChar, pendingRetry != null)) return
+    private fun cancelRetryOfWriteDeliveredDespiteBusy(writtenChar: UUID?, fromBondWrite: Boolean) {
+        if (!shouldCancelBusyRetryOnCompletion(writtenChar, pendingRetry != null, fromBondWrite)) return
         val delivered = pendingRetry ?: return
         pendingRetry = null
         writeRetries = 0
@@ -4245,8 +4266,11 @@ class WhoopBleClient(
             // refused produces no completion at all, so its retry still fires — the #77/#312 protection
             // against a silently dropped TOGGLE_REALTIME_HR / SET_CLOCK / offload-ack is untouched.
             // Hops to the main looper because pendingRetry is main-looper-only state, and it is read there
-            // rather than here. Posted with no delay, so it runs ahead of the >=12 ms retry it cancels.
-            handler.post { cancelRetryOfWriteDeliveredDespiteBusy(characteristic.uuid) }
+            // rather than here. Posted with no delay, so it runs ahead of the >=12 ms retry it cancels. The
+            // bond flag is consumed HERE, on the callback, so a later completion cannot inherit it.
+            val wasBondWrite = bondWriteOutstanding
+            bondWriteOutstanding = false
+            handler.post { cancelRetryOfWriteDeliveredDespiteBusy(characteristic.uuid, wasBondWrite) }
 
             // This with-response write is done; release the in-flight slot and send the next.
             writeInFlight = false
@@ -5385,6 +5409,7 @@ class WhoopBleClient(
         val bondFrame = Framing.buildCommand(CommandNumber.GET_BATTERY_LEVEL, byteArrayOf(0), s)
         log("Bonding: confirmed write GET_BATTERY_LEVEL to 61080002")
         writeInFlight = true   // hold the slot until onCharacteristicWrite fires (with response).
+        bondWriteOutstanding = true   // #791: this write bypasses the queue; its ack proves nothing about pendingRetry
         // safeGatt: a throw means the binder died (#314) — teardown, return false, fall into the
         // "rejected" branch which just clears the (now-stale) in-flight slot.
         val ok = safeGatt("writeBondFrame") {
@@ -5392,6 +5417,7 @@ class WhoopBleClient(
         }
         if (!ok) {
             writeInFlight = false
+            bondWriteOutstanding = false
             log("Bond write rejected by stack")
         }
     }
@@ -6458,6 +6484,7 @@ class WhoopBleClient(
         writeInFlight = false
         pendingRetry = null
         writeRetries = 0
+        bondWriteOutstanding = false   // #791: a stale flag would suppress a legitimate cancel next session
         // Cancel any scheduled BUSY-retry kicks so a queued retry can't fire after teardown and
         // re-enter a dead write/descriptor (#314).
         handler.removeCallbacks(drainWriteRetryRunnable)
