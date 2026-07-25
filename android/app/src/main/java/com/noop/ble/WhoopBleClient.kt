@@ -304,14 +304,35 @@ interface GattOps {
  */
 @SuppressLint("MissingPermission")
 class RealGattOps(private val gatt: BluetoothGatt) : GattOps {
+
+    /**
+     * #791: the raw status of the most recent Android 13+ write, kept because the `Boolean` contract throws
+     * away WHY the stack refused — and that "why" is the open question.
+     *
+     * A reporter on a Galaxy S24 saw one `GET_DATA_RANGE` produce THREE CRC-valid responses with consecutive
+     * strap-side sequence numbers, every time correlating with a burst of busy-retries, and single responses
+     * on ticks with no retries. That means a write the stack reported as refused had in fact been delivered,
+     * and the retry duplicated it. `ERROR_GATT_WRITE_REQUEST_BUSY` is documented as "not initiated", so
+     * either this stack returns it while still delivering, or it is returning something else entirely. The
+     * code distinguishes those, and nothing was recording it.
+     *
+     * Null on pre-TIRAMISU, where the legacy API only ever returned a Boolean.
+     */
+    @Volatile
+    var lastWriteStatus: Int? = null
+        private set
+
     override fun writeCharacteristicCompat(
         ch: BluetoothGattCharacteristic,
         value: ByteArray,
         writeType: Int,
     ): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            gatt.writeCharacteristic(ch, value, writeType) == BluetoothGatt.GATT_SUCCESS
+            val status = gatt.writeCharacteristic(ch, value, writeType)
+            lastWriteStatus = status
+            status == BluetoothGatt.GATT_SUCCESS
         } else {
+            lastWriteStatus = null
             @Suppress("DEPRECATION")
             run {
                 ch.writeType = writeType
@@ -872,6 +893,30 @@ class WhoopBleClient(
          * Every other dropped frame (haptics, offload-ack, clock, …) has its own recovery and must NOT poke
          * the realtime latch. Pure + instance-free so the unit harness can pin it without a live GATT stack.
          */
+        /**
+         * #791: name an Android 13+ write-refusal code for the strap log.
+         *
+         * The distinction that matters is `ERROR_GATT_WRITE_REQUEST_BUSY` (201), documented as the write not
+         * having been initiated and therefore safe to retry, versus anything else. A reporter's captures show
+         * a refused write being delivered anyway and the retry duplicating it, so which code the stack
+         * returned is the evidence that separates "safe retry" from "we just sent it twice".
+         *
+         * Literal codes rather than `BluetoothStatusCodes` constants: these are compile-time-inlined API 33
+         * values, and spelling them out keeps this readable in a log review and buildable on any compileSdk.
+         */
+        fun writeStatusLabel(status: Int?): String = when (status) {
+            null -> "status=n/a(legacy-api)"
+            0 -> "status=SUCCESS(0)"          // BluetoothStatusCodes.SUCCESS — should not reach the busy path
+            1 -> "status=ERROR_BLUETOOTH_NOT_ENABLED(1)"
+            2 -> "status=ERROR_BLUETOOTH_NOT_ALLOWED(2)"
+            3 -> "status=ERROR_DEVICE_NOT_BONDED(3)"
+            6 -> "status=ERROR_MISSING_BLUETOOTH_CONNECT_PERMISSION(6)"
+            9 -> "status=ERROR_PROFILE_SERVICE_NOT_BOUND(9)"
+            200 -> "status=ERROR_GATT_WRITE_NOT_ALLOWED(200)"
+            201 -> "status=ERROR_GATT_WRITE_REQUEST_BUSY(201)"
+            else -> "status=$status"
+        }
+
         fun shouldReArmRealtimeAfterDrop(droppedCmd: CommandNumber?): Boolean =
             droppedCmd == CommandNumber.TOGGLE_REALTIME_HR
 
@@ -5224,7 +5269,14 @@ class WhoopBleClient(
             if (gatt == null) return
             if (writeRetries < MAX_WRITE_RETRIES) {
                 writeRetries++
-                log("writeCharacteristic busy; retry $writeRetries/$MAX_WRITE_RETRIES")
+                // #791: report WHICH refusal, not just that there was one. A retry is only safe if the write
+                // truly was not initiated, and a reporter's captures show it sometimes WAS — so the status
+                // code is the evidence that tells the two apart. Frame is named too, since the harm from a
+                // duplicate depends entirely on which command got sent twice.
+                log(
+                    "writeCharacteristic busy; retry $writeRetries/$MAX_WRITE_RETRIES " +
+                        "cmd=${item.cmd?.name ?: "raw"} ${writeStatusLabel((ops as? RealGattOps)?.lastWriteStatus)}",
+                )
                 pendingRetry = item
                 // Escalating backoff (12, 24, … capped ~96ms) — ride out a congestion spike instead of
                 // exhausting the budget in a few tens of ms while the stack is still busy (#77). NAMED
