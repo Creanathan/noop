@@ -182,9 +182,10 @@ Swift, you MUST build the app yourself: `xcodebuild … build` locally, or run `
     report with a strap log is often the harder half.
   - **Only third-party contributors.** The maintainer's own handles (`@ryanbr` / `@Fanboynz`) are left
     out: self-credit adds noise and self-mentions notify nobody.
-  - Collect the handles from the merged PRs and closed issues in the release range (e.g.
-    `gh pr list --state merged --search "merged:>=<date>" --json number,author`), so nobody is missed
-    when the notes are written by hand.
+  - Collect the handles with **`Tools/release-contributors.sh <since-date|since-tag>`**, which lists every
+    third-party merged PR and closed issue in the range plus a ready credit line, with the maintainer's
+    own handles filtered out. Writing *what* each person contributed is still by hand — that's the
+    judgement part; hunting logins is not. `Tools/release.sh` warns when the notes carry no `@handle`.
 
 When in doubt, open an issue to coordinate first, and prefer the smallest change that's correct and
 covered by a test that runs without a strap.

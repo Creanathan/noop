@@ -38,6 +38,15 @@ while [ $# -gt 0 ]; do
   ASSETS+=("$1"); shift
 done
 
+# #736: release notes credit third-party contributors by @handle, not display name — a plain name
+# neither notifies them nor links anywhere. Nothing here can know who contributed, so this only
+# nudges when the notes carry no handle at all (the default stub never does). Non-fatal by design:
+# a hotfix release with no outside contributions is legitimate.
+case "$NOTES" in
+  *@*) ;;
+  *) echo "  note: notes have no @handle — see Tools/release-contributors.sh \"\$(git describe --tags --abbrev=0)\" (#736)" ;;
+esac
+
 # ── iOS asset: ONE canonical name ────────────────────────────────────────────
 # The iOS .ipa ships under a SINGLE name: NOOP-v<V>-ios.ipa, which every doc
 # (README, docs/IOS.md, the wiki) and the AltStore source point at. We used to
