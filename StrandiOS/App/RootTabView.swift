@@ -118,7 +118,13 @@ struct RootTabView: View {
             // rebuilt the whole TabView subtree and could reset @State inside the tab roots (scroll
             // offsets, chart ranges, expanded sections). `including:` keeps one view type in both
             // states, so nothing is torn down.
-            .simultaneousGesture(tabSwipeGesture, including: tabPaths[selectedTab].isEmpty ? .all : .none)
+            //
+            // The mask MUST be `.subviews`, not `.none`. `.subviews` means "enable the subview
+            // hierarchy's gestures, disable the added one" — exactly this requirement. `.none` disables
+            // the subview hierarchy TOO, which on a pushed screen would take out scrolling, taps and the
+            // interactive-pop itself: far worse than the bug being fixed.
+            .simultaneousGesture(tabSwipeGesture,
+                                 including: tabPaths[selectedTab].isEmpty ? .all : .subviews)
 
             FloatingTabBar(selection: $selectedTab, onReselect: { tag in
                 // Re-tapping the active tab refreshes that page's data (2026-07-02) and, from a
