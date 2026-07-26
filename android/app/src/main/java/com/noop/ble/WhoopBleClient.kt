@@ -3449,9 +3449,18 @@ class WhoopBleClient(
             val previousService = previous?.let { runCatching { WhoopModel.valueOf(it).service }.getOrNull() }
             if (previousService != null && previousService != model.service) {
                 // Family actually changed — untick the family-gated probes so nothing carries over.
-                PuffinExperiment.from(context).resetFiveMGGatedProbes()
-                log("Strap family switched ($previous → ${model.name}) — reset 5/MG-only experimental " +
-                    "toggles (protocol probes, raw capture, deep-data, broadcast HR) to off.")
+                // Its own runCatching: the persist above has ALREADY succeeded by this point, so letting
+                // a failure here fall into the outer catch would log "couldn't persist" about a write
+                // that worked, and hide which half actually broke.
+                runCatching { PuffinExperiment.from(context).resetFiveMGGatedProbes() }
+                    .onSuccess {
+                        log("Strap family switched ($previous → ${model.name}) — reset 5/MG-only " +
+                            "experimental toggles (protocol probes, raw capture, deep-data, broadcast HR) to off.")
+                    }
+                    .onFailure {
+                        log("Strap family switched ($previous → ${model.name}) but couldn't reset the " +
+                            "5/MG-only toggles: ${it.message} — they may still be on for the wrong family.")
+                    }
             }
         } catch (t: Throwable) {
             log("Couldn't persist selected model: ${t.message}")
