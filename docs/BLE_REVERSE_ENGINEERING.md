@@ -429,12 +429,12 @@ garbage (HR `0`, gravity overflow). The fields below were read off real frames a
 | 23 | `rr_count` (u8) | matches #valid R-R intervals 100 % (1141/1143) |
 | 24 + 2·i | `rr[i]` (u16, ms) | 60000/mean(R-R) ≈ HR for 88 % (rest are HR-averaging) |
 | 36 | `hr_fixed_8_8` (u16 LE) — bpm = `value/256` | a **higher-precision heart rate**: `value/256` correlates **0.989** with the integer `heart_rate@22` over ~258k records and carries sub-bpm fractions `@22` can't (e.g. `25997` → 101.55 bpm vs `@22`=102). |
-| 33 / 38 / 40 | raw bytes near the HR / R-R fields | carried **raw** (meaning not pinned from observation): `@33` a flag-ish byte, `@38` a u16 beside the R-R fields, `@40` a status-like byte. |
+| 33 / 38 / 40 | raw bytes near the HR / R-R fields | carried **raw** (meaning not pinned from observation): `@33` a flag-ish byte, `@38` a u16 beside the R-R fields, `@40` a status-like byte. `whoop-local` names `@40` **`signal_quality`** (#715) — plausible for a byte sitting beside HR, but it appears only in that project's code with no stated source and no supporting analysis, so it stays raw here. |
 | 41 | `dynamic_acceleration` (f32, g) | the strap's own **gravity-removed motion magnitude**, one scalar per second sitting immediately before the gravity triplet. Gated to `[0, 8] g` so a wrong offset stores nothing rather than garbage; reads 0.006–0.033 g across the resting oracle frames. Decoded on both platforms but **not persisted and not scored** — `step_motion_counter@57` and `activity_class@63` are what the motion paths actually consume. See the byte-43 note below. |
 | 45 / 49 / 53 | `gravity_x/y/z` (f32, g) | \|g\| ≈ 1.0 for 100 % of 500 records; v18 has **one** triplet (not v24's two) |
 | 57–58 | `step_motion_counter` (u16 LE @[57:59]) | a **cumulative** counter: climbs while moving, flat when still, low byte wraps at 256. **Steps = Σ wrap-aware diffs** `(cur-prev)&0xFFFF` — *not* the value summed per record (that over-counts massively — the WHOOP 5/MG step over-report). No per-record step count is in the record. |
 | 59 | `step_cadence` (u8) | a **cadence-like** byte between the counter and `@63`: never `0`, and lower when moving faster (still > walk > run in the data). Raw — no unit asserted. |
-| 63 | `motion_wear_quality` (u8) {0,1,2} | a 3-valued byte; kept **raw** (semantics not pinned from observation). |
+| 63 | `motion_wear_quality` (u8) {0,1,2} | a 3-valued byte; kept **raw** (semantics not pinned from observation). Also read as an **activity class** (0 still / 1 walk / 2 run, #316); `whoop-local` decodes the same offset with the same `<= 2` gate, reached independently (#715). |
 | 69 | `temp_aux_1_raw` (i16 LE); °C = value/10 | a **secondary temperature channel**: tracks `skin_temp@73` (corr **0.92** on two straps) with the same on-wrist diurnal curve; deci-°C resolution. |
 | 71 | `temp_aux_2_raw` (i16 LE); °C = value/10 | a second **temperature channel**: tracks `skin_temp@73` (corr **0.97**), same diurnal behaviour. |
 | 73 | `skin_temp_raw` (u16); °C = raw / 100 | A **digital skin-temperature sensor**, identified **purely from the data**: the on-wrist warming/diurnal curve is a thermal signature nothing else in the record has. **Scale = `/100`** — the only divisor that yields a physiological worn skin temperature (median ≈ **34 °C** across two straps; `/128` reads a non-physiological ≈ 27 °C). Decoded in `decodeWhoop5Historical` (`Interpreter.swift`); flows to the decode-features store as `skin_temp_raw` + derived `skin_temp_c`. |
@@ -510,6 +510,12 @@ What settles it is the **value range** in a single asleep record: 90–100 is a 
 identification holds; 0–3 is a state code and it does not. Until an asleep v18 capture exists the byte
 stays raw and unnamed, per the project rule — a plausible identity is not a decoded field. If it does
 hold, it gives WHOOP 5 an SpO₂ channel this decoder currently has no source for at all.
+
+One detail strengthens the reading: their decoder **gates the byte to `70…100` and drops anything
+outside**, rather than storing it unconditionally. Code written that way implies its author observed
+values inside that band *and* observed values outside it worth rejecting — which is what a real
+percentage with absent/invalid samples looks like, and not what a 0–3 state code looks like. Suggestive,
+not decisive; a gate can also be defensive.
 
 **The data to settle it very likely already exists.** The original "nonzero only while asleep"
 observation could not have come from the six fixtures — they are all awake. It came from the same
