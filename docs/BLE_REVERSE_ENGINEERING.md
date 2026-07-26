@@ -472,11 +472,18 @@ float32 at 41, and the claim is disproved by the fixture frames already in the r
 | `whoop5_v18_real_device2_hr57` | 6 | 0.0328 | 1.0029 |
 | `whoop5_v18_real_device2_hr63` | 9 | 0.0084 | 1.0096 |
 
-The three f32s at 45/49/53 give \|g\| = 0.9985…1.0106 on every frame — three independent floats cannot
-land on unit magnitude at a wrong offset, so the float grid there is certain, which makes 41–44 the
-preceding float. That float reads 0.006–0.033 g, exactly right for a resting gravity-removed
-magnitude. Reading byte 43 as a rate instead gives 6…195 "brpm", and the worst value is on the
-**off-wrist** frame — 195 breaths/min from a strap nobody is wearing, with `heart_rate@22` = 0.
+Two readings of bytes 41–44 are on offer, and they disagree about byte 43. The evidence, in order:
+
+1. **The 4-byte grid is fixed.** The f32s at 45/49/53 give \|g\| = 0.9985…1.0106 on every frame; three
+   values landing on unit magnitude together is not something a misaligned read produces.
+2. **Read as an f32 on that grid, 41–44 is physically coherent** — 0.006–0.033 g on all six frames,
+   the right size for a gravity-removed magnitude, and it stays coherent across worn, off-wrist and
+   two different straps. (Being on the grid doesn't by itself make it a float; the coherence is what
+   argues it is one.)
+3. **Read as a rate, byte 43 is impossible** — 6…195 "brpm", worst on the **off-wrist** frame: 195
+   breaths/min from a strap nobody is wearing, with `heart_rate@22` = 0.
+
+A byte belongs to one field. (2) and (3) can't both be right, and (3) is refuted by its own values.
 
 Note the tautology to avoid: byte 43 *is* byte 2 of that float by construction, so reproducing it from
 the float's exponent/mantissa bits proves nothing. The evidence is the gravity anchor plus the
