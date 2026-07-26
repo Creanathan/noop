@@ -442,7 +442,7 @@ garbage (HR `0`, gravity overflow). The fields below were read off real frames a
 | 77 | `status_word_1` (u16 LE) | raw; a near-static sibling of `status_word@75` (low nibble = channel index `1`). |
 | 79 | `status_word_2` (u16 LE) | raw; sibling of `@75`/`@77` (low nibble = `2`). |
 | 81 | `sleep_state` = `(byte >> 4) & 3` (+ low-nibble sub-flags) | bits 4-5 = the band sleep state: `0` wake / `1` still / `2` asleep / `3` up (deep/REM/light are off-band). Low-nibble sub-flags, observation-framed: **b0-1 `onwrist`** (on-wrist/validity flag) and **b2-3 `wake_quality`** (a 2-bit code observed nonzero **only in wake**); **b6-7 reserved** (`0` across all records). (Hypothesised from captures + a scored night on #132.) |
-| 82 | `aux_byte_82` (u8) | raw; observed **nonzero only while `sleep_state` = asleep** (meaning not pinned from observation). |
+| 82 | `aux_byte_82` (u8) | raw; observed **nonzero only while `sleep_state` = asleep** (meaning not pinned from observation). A third-party project reads this byte as a **sleep-only SpO₂ %** — plausible and unconfirmed, see the note below. |
 | 83–103 | reserved | observed **constant `0`** on two straps (zero-filled). |
 | 104 | (const) | observed **constant `1`** on two straps; carried raw, no metric. |
 | 113 | `unknown_f32_113` (f32 LE) | a float32 (observed range ~ −5.3…0, `0` = unset); **purpose unknown**, carried raw. |
@@ -489,6 +489,25 @@ Note the tautology to avoid: byte 43 *is* byte 2 of that float by construction, 
 the float's exponent/mantissa bits proves nothing. The evidence is the gravity anchor plus the
 off-wrist value. `dynamic_acceleration` is now pinned in `decoder_oracle.json` on both platforms, so a
 future offset change here fails a test rather than silently reintroducing a fabricated vital sign.
+
+#### Byte 82 may be a sleep-only SpO₂ % — open, and one capture settles it (#715)
+
+`whoop-local` ([a9eelsh](https://github.com/a9eelsh/whoop-local)) reads this byte as **WHOOP's own
+computed SpO₂ percentage, emitted only during sleep**, attributing it to hardware reverse-engineering
+(`whoop-rs`) rather than to app decompilation. That fits an observation already in the table above,
+made independently here and never explained: `aux_byte_82` is **nonzero only while `sleep_state` =
+asleep**. WHOOP measures SpO₂ only during sleep, so "sleep-only" is the signature either reading
+predicts.
+
+**It cannot be confirmed from anything in this repo.** All **21** v18 frames in the tree — the six
+oracle frames plus fifteen more across the Swift and Kotlin suites — are `sleep_state = 0` (awake), and
+all 21 carry byte 82 = 0. That is consistent with a sleep-only channel, and equally consistent with
+several other readings; absence while awake distinguishes nothing.
+
+What settles it is the **value range** in a single asleep record: 90–100 is a percentage and the
+identification holds; 0–3 is a state code and it does not. Until an asleep v18 capture exists the byte
+stays raw and unnamed, per the project rule — a plausible identity is not a decoded field. If it does
+hold, it gives WHOOP 5 an SpO₂ channel this decoder currently has no source for at all.
 
 WHOOP 5 v18 carries no raw respiration channel, and the decoders already say so: `respRateRawOff = 80`
 is set on the **4.0** `HIST_V24` layout only (§ the type-47 biometric record), and `AnalyticsEngine`
@@ -583,6 +602,14 @@ The bodies are blocks of fixed-length **sample channels**:
   or moving v20 capture in the tree, and the earlier "same sensor set as v21" claim was the only basis for
   calling it optical — now that v21 is inertial, that inference no longer supports an optical reading. Do
   not treat v20 as an SpO₂/BP optical substrate pending a labelled **moving** capture.
+
+  **Independently corroborated (#715).** `whoop-local` lists six 20-bit v20 channel offsets, derived
+  separately from this tree: frame `47, 247, 1313, 1513, 1735, 1935`. Those are exactly the six slots of
+  our **non-empty** blocks (0, 3 and 4 — the corpus shows block counts are always `[25, 0, 0, 25, 25]`),
+  out of the ten listed above. Two unrelated methods agreeing on which six slots carry data, and where,
+  is the strongest confirmation this layout has. Note what it does **not** settle: both projects agree on
+  the *structure*, and neither has a labelled capture, so the sensor-identity question above is untouched
+  — agreement about where the bytes are is not evidence about what produced them.
 
 `decodeWhoop5HistoricalV2021` exposes `layout_marker`, `record_index`, `unix`, and the channels as **raw
 i16 sample arrays with no scale applied at this layer**. For **v21** the channels are named `accel_x/y/z`
