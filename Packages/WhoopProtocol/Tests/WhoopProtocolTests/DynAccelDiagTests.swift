@@ -39,9 +39,10 @@ final class DynAccelDiagTests: XCTestCase {
         XCTAssertEqual(d.mean ?? 0, 0.081489 / 6, accuracy: 1e-9)
     }
 
-    /// The threshold is a strict `<`, so a value sitting exactly on it is NOT still. Matters because the
-    /// stager's own comparison is `<` too — an off-by-one boundary here would make the two figures
-    /// non-comparable, which is the whole point of reusing the constant.
+    /// The threshold is a strict `<`, so a value sitting exactly on it is NOT still — matching the stager's
+    /// own `<`. Worth pinning because the cut is borrowed from the stager as a reference point, and a
+    /// boundary that differed would add a second discrepancy on top of the one that already exists (the
+    /// stager thresholds a delta, this an absolute magnitude).
     func testThresholdIsExclusive() {
         var d = Streams.DynAccelDiag()
         d.add(thr, threshold: thr)

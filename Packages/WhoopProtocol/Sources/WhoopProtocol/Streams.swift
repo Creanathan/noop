@@ -262,8 +262,13 @@ public struct Streams: Equatable, Codable {
 
     /// #520 diagnostic: distribution of `dynamic_acceleration` over one decoded chunk. Deliberately a
     /// summary, not a stream — at 1 Hz a night is ~30k values and the open question needs a shape, not
-    /// samples. `still` counts values under `SleepStager.gravityStillThresholdG` (0.01 g) so the ratio is
-    /// directly comparable to the gravity-delta stillness the stager already uses.
+    /// samples. `still` counts values under `SleepStager.gravityStillThresholdG` (0.01 g) — borrowed as a
+    /// REFERENCE CUT, not because the two quantities are the same thing. The stager thresholds a per-sample
+    /// DELTA (how much the gravity vector moved between consecutive samples); this field is an ABSOLUTE
+    /// gravity-removed magnitude at one instant. Both go to ~0 when the wrist is still, so the same cut is a
+    /// sensible starting point, but the two still-fractions are not measuring the same thing and should not
+    /// be read as if a match proved equivalence. `min`/`max`/`mean` are here so a reader can re-derive any
+    /// other cut from the logs — picking the right one is what this diagnostic exists to inform.
     public struct DynAccelDiag: Equatable, Codable, Sendable {
         public var count = 0
         public var still = 0

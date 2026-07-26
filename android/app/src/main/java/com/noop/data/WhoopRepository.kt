@@ -78,9 +78,13 @@ data class StreamBatch(
 /**
  * #520 diagnostic: distribution of `dynamic_acceleration` over one decoded batch. Deliberately a
  * summary, not a stream — at 1 Hz a night is ~30k values and the open question needs a shape, not
- * samples. [still] counts values under `SleepStager.gravityStillThresholdG` (0.01 g) so the ratio is
- * directly comparable to the gravity-delta stillness the stager already uses. Byte-identical twin of
- * Swift `Streams.DynAccelDiag` — same fields, same fold order, same nulls.
+ * samples. [still] counts values under `SleepStager.gravityStillThresholdG` (0.01 g) — borrowed as a
+ * REFERENCE CUT, not because the two quantities are the same thing. The stager thresholds a per-sample
+ * DELTA (how much the gravity vector moved between consecutive samples); this field is an ABSOLUTE
+ * gravity-removed magnitude at one instant. Both go to ~0 when the wrist is still, so the same cut is a
+ * sensible starting point, but the two still-fractions are not measuring the same thing and a match does
+ * not prove equivalence. [min]/[max]/[mean] let a reader re-derive any other cut from the logs.
+ * Byte-identical twin of Swift `Streams.DynAccelDiag` — same fields, same fold order, same nulls.
  */
 data class DynAccelDiag(
     var count: Int = 0,

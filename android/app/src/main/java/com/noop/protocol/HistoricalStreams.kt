@@ -49,15 +49,6 @@ import com.noop.data.StreamPersistence
  * "last night · 12 Jul"). Reuses the same 1.7 B floor already used to validate GET_DATA_RANGE words
  * (WhoopBleClient.dataRangeNewestUnix). Below this → drop the record.
  */
-/**
- * #520: the stillness cut used by the `dynamic_acceleration` diagnostic. Mirrors
- * `SleepStager.gravityStillThresholdG` (0.01 g) so the diagnostic's still-fraction can be compared
- * directly against the gravity-delta stillness the stager already computes. Duplicated as a literal
- * rather than imported — this is the wire layer and must not depend on the analytics layer. If the
- * stager's constant moves, move this one with it. Twin of Swift `dynAccelStillThresholdG`.
- */
-const val DYN_ACCEL_STILL_THRESHOLD_G: Double = 0.01
-
 const val MIN_PLAUSIBLE_UNIX: Long = 1_700_000_000L
 
 /**
@@ -77,6 +68,17 @@ const val FUTURE_MARGIN: Long = 86_400L
  * the months-off garbage. Kept in lockstep with Swift `HistoricalStreams.swift` SESSION_RANGE_MARGIN.
  */
 const val SESSION_RANGE_MARGIN: Long = 7L * 86_400L
+
+/**
+ * #520: the stillness cut for the `dynamic_acceleration` diagnostic. Borrowed from
+ * `SleepStager.gravityStillThresholdG` (0.01 g) as a REFERENCE point, not because the two measure the same
+ * thing — the stager thresholds a per-sample DELTA between consecutive gravity vectors, while this field is
+ * an ABSOLUTE gravity-removed magnitude at one instant. Both approach 0 when the wrist is still, so the same
+ * cut is a sensible starting point, but a matching still-fraction would not prove the two are equivalent.
+ * Duplicated as a literal rather than imported — this is the wire layer and must not depend on the analytics
+ * layer. If the stager's constant moves, move this one with it. Twin of Swift `dynAccelStillThresholdG`.
+ */
+const val DYN_ACCEL_STILL_THRESHOLD_G: Double = 0.01
 
 // MARK: - little-endian readers (null when out of range; mirror PostHooks.swift u8/u16/u32/f32)
 
@@ -702,8 +704,9 @@ fun extractHistoricalStreams(
                     )
                 }
                 // #520: fold the gravity-removed motion magnitude into the diagnostic summary. The
-                // threshold matches SleepStager.gravityStillThresholdG so the still-fraction is directly
-                // comparable; passed as a literal because the protocol layer must not depend on analytics.
+                // threshold is the stager's own cut, borrowed as a reference point (the stager thresholds a
+                // per-sample delta, this is an absolute magnitude — related, not the same measurement);
+                // passed as a literal because the protocol layer must not depend on analytics.
                 p.doubleOrNull("dynamic_acceleration")?.let { dynAccel.add(it, DYN_ACCEL_STILL_THRESHOLD_G) }
             }
 
