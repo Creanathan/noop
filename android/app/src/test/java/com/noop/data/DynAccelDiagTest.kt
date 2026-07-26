@@ -1,6 +1,10 @@
 package com.noop.data
 
+import com.noop.protocol.DeviceFamily
+import com.noop.protocol.extractHistoricalStreams
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -63,9 +67,9 @@ class DynAccelDiagTest {
         assertEquals(0.02, d.max!!, 1e-12)
     }
 
-    /** A batch is an arbitrary slice of an offload; the still-fraction only means anything once merged. */
+    /** A chunk is an arbitrary slice of an offload; the still-fraction only means anything once merged. */
     @Test
-    fun mergeCombinesBatches() {
+    fun mergeCombinesChunks() {
         val a = DynAccelDiag()
         a.add(0.004, thr)
         a.add(0.006, thr)
@@ -127,6 +131,43 @@ class DynAccelDiagTest {
         assertEquals(14, DynAccelDiag.mg(0.0135))
         assertEquals(67, DynAccelDiag.pct(0.665))
         assertEquals(1, DynAccelDiag.pct(0.005))
+    }
+
+    /**
+     * Twin of Swift `testExtractionPopulatesDiagFromARealFrame`. Proves the v18 path actually FOLDS the
+     * field rather than merely exposing the type — the wiring, not the arithmetic. This matters more here
+     * than on Swift: `android.yml` is disabled, so nothing in this file is compiled by default CI, and the
+     * extraction hook is the piece most likely to be dropped by a future refactor.
+     *
+     * Reads the same captured worn frame from the shared oracle rather than pasting bytes, so this test and
+     * the cross-platform oracle can never disagree about what the frame is. Its f32@41 is 0.009160 g.
+     */
+    @Test
+    fun extractionPopulatesDiagFromARealFrame() {
+        val stream = javaClass.classLoader!!.getResourceAsStream("decoder_oracle.json")
+        assertNotNull("decoder_oracle.json missing from test classpath", stream)
+        val oracle = JSONObject(stream!!.bufferedReader().use { it.readText() })
+        val frames = oracle.getJSONArray("frames")
+        var hex: String? = null
+        for (i in 0 until frames.length()) {
+            val f = frames.getJSONObject(i)
+            if (f.getString("name") == "whoop5_v18_real_worn") hex = f.getString("hex")
+        }
+        assertNotNull("whoop5_v18_real_worn missing from the oracle", hex)
+
+        val raw = hex!!
+        val bytes = ByteArray(raw.length / 2) {
+            ((raw[it * 2].digitToInt(16) shl 4) or raw[it * 2 + 1].digitToInt(16)).toByte()
+        }
+        val batch = extractHistoricalStreams(
+            listOf(bytes),
+            deviceClockRef = 0,
+            wallClockRef = 0,
+            family = DeviceFamily.WHOOP5,
+        )
+        assertEquals("the v18 path did not fold dynamic_acceleration", 1, batch.dynAccel.count)
+        assertEquals(0.009160, batch.dynAccel.max!!, 1e-5)
+        assertEquals("0.00916 g is under the 0.01 g stillness cut", 1, batch.dynAccel.still)
     }
 
     /**
