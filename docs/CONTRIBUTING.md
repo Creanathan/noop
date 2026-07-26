@@ -508,8 +508,8 @@ Schema lives in `Packages/WhoopStore/Sources/WhoopStore/Database.swift` as a **v
   the user owns.
 - **Facts vs code — the line that actually gets tested.** The rule above is about *code*: verbatim or
   transcribed implementations, string literals, and assets stay out however correct they are. A
-  **protocol fact** — a byte offset, a field width, an enum value — is not code and may be
-  reimplemented, *provided* it is attributed and lands as an **unvalidated candidate**: decoded and
+  **protocol fact** — a byte offset, a field width, an enum value — is an observation about the wire,
+  and this project's practice is that it may be reimplemented, *provided* it is attributed and lands as an **unvalidated candidate**: decoded and
   logged, never backing a shipped metric, until independent captures clear it. `spo2_candidate_82`
   (v18 byte `@82`) is the worked example — sourced from a decompile, attributed as such in
   `Interpreter.swift`, gated by a test that stops it ever writing `spo2Pct`, and still a candidate
