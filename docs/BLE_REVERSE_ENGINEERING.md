@@ -871,6 +871,41 @@ set, keep it reversible and non-destructive.
 
 ---
 
+## Appendix: evaluated and rejected — the LINK_VALID handshake (#715)
+
+Recorded so it is not re-proposed. `whoop-local` ([a9eelsh](https://github.com/a9eelsh/whoop-local))
+implements a handshake in which the strap sends a `LINK_VALID` (command 1) and the client must answer
+with a `COMMAND_RESPONSE` (36) carrying `[originSeq, SUCCESS, "There it is."]`, stating that otherwise
+"the strap treats the link as invalid and withholds data."
+
+**As stated, that is contradicted by this repo's own captures.** NOOP has never had a `LINK_VALID`
+handler — there is not one reference to it anywhere in `Strand/BLE/` — and has nonetheless offloaded
+**~258k v18 records**, an **18,602-record** v18 corpus, and a **29,203-record** v20 corpus off real
+WHOOP 5 straps, plus live HR and sleep sync in the field. A strap withholding data from a client that
+never answers could not produce any of that.
+
+What may still be true is narrower: their handshake sits alongside `TOGGLE_IMU_MODE` (106) and
+`TOGGLE_OPTICAL_MODE` (108), which arm the realtime R20/R21 raw streams. NOOP does not use those paths
+(it takes live HR from standard `0x2A37` and disables the raw flood on connect, §4), so if the exchange
+gates anything, it plausibly gates *those streams* rather than the offload. That is untested here.
+
+**Two questions are genuinely open**, and a capture answers both without implementing anything:
+
+1. Does a WHOOP 5/MG ever send us a type-35 `COMMAND` with `cmd == 1`? The schema knows both
+   (`PacketType 35 = COMMAND`, `CommandNumber 1 = LINK_VALID`) but nothing routes it, so today it would
+   arrive and be dropped silently.
+2. If it does, does ignoring it affect *link stability* — as distinct from data flow? That is a
+   different claim from the one above and is not disproved by the corpus. It would be a candidate
+   contributor to the intermittent-disconnect reports (#802, #613), though those look unlike a link the
+   strap has declared invalid.
+
+**Provenance caveat, and it is the deciding one.** The whole path is decompile-sourced
+(`com/whoop/service/rearchitect/c.java`, `zi0/*`, `bj0/x.java`, `bj0/f.java`) and its payload is a
+**literal string lifted from the app**. This project reimplements decompile-sourced *facts* with
+attribution when they are treated as unvalidated candidates — `spo2_candidate_82` is the precedent —
+but an offset is a fact and a magic string is expression. Even if question 1 turns out yes, the reply
+should be derived from our own capture of what the strap accepts, not copied.
+
 ## Appendix: observed but undecoded (#791)
 
 A reporter running an instrumented build on a **WHOOP 4.0 with recent firmware** (Galaxy S24 Ultra) dumped
