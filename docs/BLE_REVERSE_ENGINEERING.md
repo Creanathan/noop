@@ -511,6 +511,13 @@ identification holds; 0–3 is a state code and it does not. Until an asleep v18
 stays raw and unnamed, per the project rule — a plausible identity is not a decoded field. If it does
 hold, it gives WHOOP 5 an SpO₂ channel this decoder currently has no source for at all.
 
+**The data to settle it very likely already exists.** The original "nonzero only while asleep"
+observation could not have come from the six fixtures — they are all awake. It came from the same
+out-of-tree **~258k-record** corpus this document cites for `hr_fixed_8_8@36` and for `status_word@75`
+"occurring as often awake as asleep", which therefore *contains asleep records*. Whoever holds that
+corpus can answer this in one query — the distribution of byte 82 where `sleep_state != 0` — without
+waiting on a new capture. That is the cheapest route to closing this out.
+
 WHOOP 5 v18 carries no raw respiration channel, and the decoders already say so: `respRateRawOff = 80`
 is set on the **4.0** `HIST_V24` layout only (§ the type-47 biometric record), and `AnalyticsEngine`
 notes "WHOOP5 v18 carries no raw resp ADC, so this is an on-device estimate" where it derives the rate
