@@ -96,6 +96,21 @@ def test_find_peaks_enforces_min_prom():
     v = [0.0, 2.0, 0.0, 9.0, 0.0]
     assert H.find_peaks(v, min_dist=1, min_prom=5.0) == [3]
     assert H.find_peaks(v, min_dist=1, min_prom=1.0) == [1, 3]
+    # Strict `>`: a maximum sitting exactly ON the threshold is rejected. The docstring used to say
+    # `>= min_prom`, which is the opposite; the code was right and the doc has been corrected.
+    assert H.find_peaks([0.0, 5.0, 0.0], min_dist=1, min_prom=5.0) == []
+    assert H.find_peaks([0.0, 5.0, 0.0], min_dist=1, min_prom=4.9) == [1]
+
+
+def test_find_peaks_plateau_yields_one_index():
+    """A flat plateau is one peak, not one per sample.
+
+    The neighbour test is asymmetric on purpose (`> left`, `>= right`). Symmetric `>=` would emit a
+    duplicate for every plateau sample and inflate the beat count; symmetric `>` would drop plateaus
+    altogether. Nothing pinned that before, and the docstring described it wrongly as `>= neighbours`.
+    """
+    assert H.find_peaks([0.0, 5.0, 5.0, 0.0], min_dist=1, min_prom=0.0) == [1]
+    assert H.find_peaks([0.0, 5.0, 5.0, 5.0, 0.0], min_dist=1, min_prom=0.0) == [1]
 
 
 def test_spot_hrv_returns_none_on_too_few_samples():
