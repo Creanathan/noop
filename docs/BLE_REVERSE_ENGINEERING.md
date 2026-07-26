@@ -878,11 +878,18 @@ implements a handshake in which the strap sends a `LINK_VALID` (command 1) and t
 with a `COMMAND_RESPONSE` (36) carrying `[originSeq, SUCCESS, "There it is."]`, stating that otherwise
 "the strap treats the link as invalid and withholds data."
 
-**As stated, that is contradicted by this repo's own captures.** NOOP has never had a `LINK_VALID`
-handler — there is not one reference to it anywhere in `Strand/BLE/` — and has nonetheless offloaded
-**~258k v18 records**, an **18,602-record** v18 corpus, and a **29,203-record** v20 corpus off real
-WHOOP 5 straps, plus live HR and sleep sync in the field. A strap withholding data from a client that
-never answers could not produce any of that.
+**As stated, that is contradicted by what NOOP does in the field.** Neither platform has ever had a
+`LINK_VALID` handler — not one reference in `Strand/BLE/` or `com.noop.ble` — and NOOP nonetheless
+completes historical offloads, live HR and sleep sync on WHOOP 5/MG for real users. If the strap
+withheld data from a client that never answers, *every* 5/MG user would get nothing; instead the
+5/MG reports we receive are about intermittent disconnects (#802) and state restoration (#613), not
+about a strap that never sends anything.
+
+The decode corpora point the same way — **~258k v18 records**, an **18,602-record** v18 span from a
+third strap's overnight stream, a **29,203-record** v20 corpus — though note those are cited here as
+corroboration, not proof: this project also has HCI-snoop tooling (`hci_extract.py`, #103), and a
+corpus extracted from a snoop of the *official* app would have been produced by a client that DID
+answer. The field-behaviour argument above does not depend on how any corpus was captured.
 
 What may still be true is narrower: their handshake sits alongside `TOGGLE_IMU_MODE` (106) and
 `TOGGLE_OPTICAL_MODE` (108), which arm the realtime R20/R21 raw streams. NOOP does not use those paths
