@@ -290,19 +290,27 @@ public struct Streams: Equatable, Codable {
             if let hi = other.max { max = max.map { Swift.max($0, hi) } ?? hi }
         }
 
+        /// Milli-g, rounded half-away-from-zero. Integers are the ONLY safe way to render this across the
+        /// two platforms: C's `%.3f` (what Swift's `String(format:)` uses) rounds half-to-EVEN while Java's
+        /// `String.format` rounds HALF_UP, so a tie diverges — 0.0625 g prints `0.062` on Swift and `0.063`
+        /// on Kotlin, and 0.0625 is exactly representable in the f32 the strap sends. Swift's `.rounded()`
+        /// and Kotlin's `round()` agree for non-negative input, and the decoder gates this field to
+        /// `[0, 8] g`, so the two sides round identically here.
+        static func mg(_ g: Double) -> Int { Int((g * 1000).rounded()) }
+
+        /// Whole percent, same rounding rule and the same reason (`%.0f` of 66.5 is 66 on Swift, 67 on Kotlin).
+        static func pct(_ fraction: Double) -> Int { Int((fraction * 100).rounded()) }
+
         /// The strap-log line for a whole offload session, or nil when nothing arrived (so a WHOOP 4.0 or a
-        /// caught-up session stays quiet). Pure and locale-independent — `String(format:)` with no locale is
-        /// POSIX, and the Kotlin twin passes `Locale.ROOT`, so both platforms emit the same bytes.
+        /// caught-up session stays quiet). Every field is an Int rendered by interpolation — no `String(format:)`,
+        /// so neither locale nor printf rounding mode can make the two platforms disagree.
         public func logLine(threshold: Double) -> String? {
-            guard count > 0, let lo = min, let hi = max, let avg = mean, let stillPct = stillFraction else {
+            guard count > 0, let lo = min, let hi = max, let avg = mean, let frac = stillFraction else {
                 return nil
             }
-            // `%ld`, not `%d`: Swift's Int is 64-bit and `%d` reads a 32-bit int, which is undefined for
-            // large counts. Kotlin's `%d` takes a 32-bit Int and is correct there — different specifiers,
-            // identical output bytes, which is what the parity contract is about.
-            return String(format: "Backfill: dynaccel n=%ld still=%.0f%% mean=%.3f range=%.3f..%.3f g "
-                          + "(thr %.2f) — diagnostic only, not stored or scored (#520)",
-                          count, stillPct * 100, avg, lo, hi, threshold)
+            return "Backfill: dynaccel n=\(count) still=\(Self.pct(frac))% mean=\(Self.mg(avg))mg "
+                + "range=\(Self.mg(lo))..\(Self.mg(hi))mg (thr \(Self.mg(threshold))mg) "
+                + "— diagnostic only, not stored or scored (#520)"
         }
 
         /// Fold one decoded value in. `threshold` is passed rather than imported so WhoopProtocol keeps no

@@ -107,8 +107,20 @@ final class DynAccelDiagTests: XCTestCase {
         d.add(2.310, threshold: thr)
         XCTAssertEqual(
             d.logLine(threshold: thr),
-            "Backfill: dynaccel n=3 still=67% mean=0.773 range=0.004..2.310 g "
-            + "(thr 0.01) — diagnostic only, not stored or scored (#520)")
+            "Backfill: dynaccel n=3 still=67% mean=773mg range=4..2310mg "
+            + "(thr 10mg) — diagnostic only, not stored or scored (#520)")
+    }
+
+    /// The line renders integers rather than `%.3f` because the two platforms round ties differently: C
+    /// (Swift) is half-to-EVEN, Java (Kotlin) is HALF_UP, so `%.3f` of 0.0625 g is 0.062 on one and 0.063
+    /// on the other — and 0.0625 is exactly representable in the f32 the strap sends, so it is reachable.
+    /// These are the tie values; `mg`/`pct` must round them half-AWAY-from-zero, which is the one rule both
+    /// languages' rounding functions agree on for non-negative input.
+    func testTiesRoundAwayFromZeroNotPrintfStyle() {
+        XCTAssertEqual(Streams.DynAccelDiag.mg(0.0625), 63, "62.5 mg must round up, not to even")
+        XCTAssertEqual(Streams.DynAccelDiag.mg(0.0135), 14)
+        XCTAssertEqual(Streams.DynAccelDiag.pct(0.665), 67, "66.5% must round up, not to even")
+        XCTAssertEqual(Streams.DynAccelDiag.pct(0.005), 1, "0.5% must round up, not to even")
     }
 
     /// `extractHistoricalStreams` must actually populate the diag off a real frame, not just expose the

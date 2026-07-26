@@ -112,10 +112,24 @@ class DynAccelDiagTest {
         d.add(0.006, thr)
         d.add(2.310, thr)
         assertEquals(
-            "Backfill: dynaccel n=3 still=67% mean=0.773 range=0.004..2.310 g " +
-                "(thr 0.01) — diagnostic only, not stored or scored (#520)",
+            "Backfill: dynaccel n=3 still=67% mean=773mg range=4..2310mg " +
+                "(thr 10mg) — diagnostic only, not stored or scored (#520)",
             d.logLine(thr),
         )
+    }
+
+    /**
+     * The rounding trap. C (Swift) rounds ties half-to-EVEN, Java (Kotlin) rounds HALF_UP, so `%.3f` of
+     * 0.0625 g is 0.062 on one platform and 0.063 on the other — and 0.0625 is exactly representable in the
+     * f32 the strap sends. The line renders integers instead, rounded half-AWAY-from-zero, the one rule both
+     * languages agree on for non-negative input. Same expectations as the Swift twin.
+     */
+    @Test
+    fun tiesRoundAwayFromZeroNotPrintfStyle() {
+        assertEquals(63, DynAccelDiag.mg(0.0625))
+        assertEquals(14, DynAccelDiag.mg(0.0135))
+        assertEquals(67, DynAccelDiag.pct(0.665))
+        assertEquals(1, DynAccelDiag.pct(0.005))
     }
 
     /** The locale trap, asserted directly: the line must not change when the default locale is comma-decimal. */
@@ -129,8 +143,8 @@ class DynAccelDiagTest {
             d.add(0.006, thr)
             d.add(2.310, thr)
             assertEquals(
-                "Backfill: dynaccel n=3 still=67% mean=0.773 range=0.004..2.310 g " +
-                    "(thr 0.01) — diagnostic only, not stored or scored (#520)",
+                "Backfill: dynaccel n=3 still=67% mean=773mg range=4..2310mg " +
+                    "(thr 10mg) — diagnostic only, not stored or scored (#520)",
                 d.logLine(thr),
             )
         } finally {

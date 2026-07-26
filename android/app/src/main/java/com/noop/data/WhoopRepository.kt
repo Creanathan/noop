@@ -112,22 +112,37 @@ data class DynAccelDiag(
 
     /**
      * The strap-log line for a whole offload session, or null when nothing arrived (so a WHOOP 4.0 or a
-     * caught-up session stays quiet). Pure and locale-independent: [java.util.Locale.ROOT] is mandatory
-     * here — the default locale would render `0,021` in e.g. de/fr and diverge from Swift, whose
-     * `String(format:)` is POSIX. Byte-identical twin of Swift `DynAccelDiag.logLine`.
+     * caught-up session stays quiet). Every field is an Int rendered by interpolation — deliberately NOT
+     * [String.format]. Two separate traps live in that function: the default locale renders `0,021` on a
+     * de/fr device, and Java rounds HALF_UP where C (and so Swift) rounds half-to-EVEN, which makes ties
+     * diverge. Integers avoid both. Byte-identical twin of Swift `DynAccelDiag.logLine`.
      */
     fun logLine(threshold: Double): String? {
         val lo = min ?: return null
         val hi = max ?: return null
         val avg = mean ?: return null
-        val stillPct = stillFraction ?: return null
+        val frac = stillFraction ?: return null
         if (count <= 0) return null
-        return String.format(
-            java.util.Locale.ROOT,
-            "Backfill: dynaccel n=%d still=%.0f%% mean=%.3f range=%.3f..%.3f g " +
-                "(thr %.2f) — diagnostic only, not stored or scored (#520)",
-            count, stillPct * 100, avg, lo, hi, threshold,
-        )
+        return "Backfill: dynaccel n=$count still=${pct(frac)}% mean=${mg(avg)}mg " +
+            "range=${mg(lo)}..${mg(hi)}mg (thr ${mg(threshold)}mg) " +
+            "— diagnostic only, not stored or scored (#520)"
+    }
+
+    companion object {
+        /**
+         * Milli-g, rounded to match Swift's `.rounded()` (ties away from zero).
+         *
+         * [kotlin.math.roundToInt] is REQUIRED here and [kotlin.math.round] is WRONG: `round` is
+         * `Math.rint`, which breaks ties toward the EVEN integer, while `roundToInt` is `Math.round`,
+         * which breaks them toward positive infinity — the same answer as Swift for non-negative input.
+         * With `round`, 62.5 mg would give 62 on Kotlin and 63 on Swift, which is exactly the printf
+         * divergence this integer formatting exists to avoid. The decoder gates this field to `[0, 8] g`
+         * so input is never negative, where the two rules would part company again.
+         */
+        fun mg(g: Double): Int = (g * 1000).roundToInt()
+
+        /** Whole percent, same rounding rule and the same reason. */
+        fun pct(fraction: Double): Int = (fraction * 100).roundToInt()
     }
 
     /**
