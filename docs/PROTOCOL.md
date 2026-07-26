@@ -628,14 +628,18 @@ real hardware so far; the MG's own revision string is not, so its absence proves
 
 Recorded because "why is there no blood oxygen?" is a recurring question with a protocol answer.
 
-- **There is no `GET_SPO2`-style opcode.** The `CommandNumber` table carries 80 commands and none is
-  an oxygen/blood-oxygen read. SpO₂ is not a pollable gauge, so looking for a missing opcode is a dead
-  end.
+- **No SpO₂ read opcode is known.** Our `CommandNumber` catalogue carries 80 commands and none is an
+  oxygen/blood-oxygen read; independent RE reports none either. Note the catalogue is what we have
+  mapped, not a proof of the strap's whole command space — §6 is explicitly a *safe subset*, and the
+  98-vs-87 battery dispute shows the map is incomplete. Treat it as "nobody has found one", which is
+  still enough to say hunting for a missing opcode is the wrong lead.
 - **It is computed on-device, during sleep.** Expect values only in overnight windows, never a
   continuous 24/7 series.
-- **The export is an aggregate.** `blood_oxygen_pct` in a WHOOP CSV is typically one value per recovery
-  cycle, so it will not equal a plain mean of raw wire samples — rounding, quality gates and
-  incomplete nights all move it.
+- **The export is a per-cycle aggregate.** `blood_oxygen_pct` arrives on the physiological-cycles row —
+  our own importer reads it beside `recovery_score_pct` and `day_strain`, keyed on
+  `cycleStart`/`cycleEnd` (`WhoopExportImporter.swift:272`) — so it is one value per recovery cycle and
+  will not equal a plain mean of raw wire samples. Rounding, quality gates and incomplete nights all
+  move it.
 - **A night with no export value is a real gap**, not a NOOP bug. Naps and incomplete nights routinely
   carry none.
 
