@@ -9,7 +9,7 @@ Context (see docs/WHOOP5_DEEP_DATA.md and issue #103):
 
 This tool answers the promote-or-not question as *known plaintext*:
 
-    capture.json OR whoop.db  +  whoop_export  ──►  nightly mean(@82 | asleep, 70–100)
+    capture.json OR a whoop_sync.py .db  +  whoop_export  ──►  mean(@82 | asleep, 70–100)
                                        vs CSV blood_oxygen_pct
                                        ──►  r, MAE, bias, offset-specificity
 
@@ -202,8 +202,8 @@ def load_cycles(export_path: str) -> List[dict]:
 # --- Capture decode --------------------------------------------------------------------------------
 
 def looks_like_sqlite(path: str) -> bool:
-    """True if `path` is a SQLite file. Sniffs the 16-byte header rather than trusting the extension —
-    NOOP's Android store is `whoop.db` but a copied/renamed capture is common."""
+    """True if `path` is a SQLite file. Sniffs the 16-byte header rather than trusting the extension,
+    since capture DBs get renamed freely (`whoop.db`, `strap-a.db`, no suffix at all)."""
     try:
         with open(path, "rb") as f:
             return f.read(16) == b"SQLite format 3\x00"
@@ -212,12 +212,16 @@ def looks_like_sqlite(path: str) -> bool:
 
 
 def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
-    """Frame records as `{"hex": ...}` dicts, from EITHER a capture.json or a NOOP SQLite store.
+    """Frame records as `{"hex": ...}` dicts, from EITHER a capture.json or a `whoop_sync.py` store.
 
-    The JSON path is what hci_extract / whoop_capture produce. The SQLite path reads the same
-    `frames` table `whoop_activity.records()` reads, which is where a NOOP install's own offloaded
-    history already lives — without it this tool can only validate data that was re-captured over
-    HCI, which is a far harder ask than pointing it at the database the app already wrote.
+    The JSON path is what hci_extract / whoop_capture produce. The SQLite path reads the `frames`
+    table that `whoop_sync.py` writes (`captures/whoop.db`) and `whoop_activity.py` reads.
+
+    NOTE: this is the CAPTURE TOOLING's database, not the app's. Neither shipped app has a `frames`
+    table — Android uses Room, iOS/macOS uses GRDB — so this cannot be pointed at a phone's store or
+    a `.noopbak`. It exists because `whoop_sync.py` writes `.db` while this tool read only `.json`,
+    forcing a `whoop_sync.py export --only-type 47` round-trip between two tools in the same
+    directory.
     """
     if looks_like_sqlite(path):
         con = sqlite3.connect(path)
@@ -226,7 +230,7 @@ def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
                 "SELECT hex FROM frames WHERE device_id=? AND inner_type=47", (device_id,)
             ).fetchall()
         except sqlite3.Error as e:
-            raise SystemExit(f"{path}: not a NOOP frame store ({e})")
+            raise SystemExit(f"{path}: not a whoop_sync.py frame store ({e})")
         finally:
             con.close()
         if not rows:
@@ -239,7 +243,7 @@ def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
     with open(path) as f:
         capture = json.load(f)
     if not isinstance(capture, list):
-        raise SystemExit(f"{path}: expected a JSON list of frame records, or a NOOP SQLite store")
+        raise SystemExit(f"{path}: expected a JSON list of frame records, or a whoop_sync.py .db")
     return capture
 
 
@@ -504,7 +508,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("export", nargs="?", help="WHOOP CSV export .zip or folder")
     p.add_argument("--device", default="device", help="label for this strap (default: device)")
     p.add_argument("--device-id", type=int, default=2,
-                   help="device_id row filter when the capture is a NOOP SQLite store "
+                   help="device_id row filter when the capture is a whoop_sync.py .db "
                         "(default: 2, matching whoop_activity.py)")
     p.add_argument(
         "--batch",

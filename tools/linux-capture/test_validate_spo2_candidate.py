@@ -228,10 +228,12 @@ if __name__ == "__main__":
 
 
 class LoadFrameRecordsTest(unittest.TestCase):
-    """#103: the validator originally read capture.json only, so it could not be pointed at the place a
-    NOOP install's own history already lives — the SQLite `frames` table `whoop_activity.records()`
-    reads. Requiring an HCI re-capture instead is a far harder ask than opening the existing database,
-    and it was the practical blocker on getting multi-device @82 evidence at all."""
+    """#103: `whoop_sync.py` writes its captures to a SQLite `frames` table, but this validator read
+    only capture.json — so a Linux capture had to be round-tripped through
+    `whoop_sync.py export --only-type 47` to be analysed by a tool sitting in the same directory.
+
+    This is the CAPTURE TOOLING's database, not the app's: neither shipped app has a `frames` table
+    (Android is Room, iOS/macOS is GRDB), so this path cannot reach a phone store or a .noopbak."""
 
     def _store(self, rows, *, device_id=2, inner_type=47):
         path = tempfile.mktemp(suffix=".db")
@@ -286,4 +288,4 @@ class LoadFrameRecordsTest(unittest.TestCase):
         self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
         with self.assertRaises(SystemExit) as cm:
             vs.load_frame_records(path)
-        self.assertIn("not a NOOP frame store", str(cm.exception))
+        self.assertIn("not a whoop_sync.py frame store", str(cm.exception))

@@ -585,21 +585,23 @@ strap-computed SpO₂ scalar (the `spo2_candidate_82` decode already in Swift/Ko
 **nightly means** against your WHOOP CSV export — the multi-device bar described in
 [`docs/WHOOP5_DEEP_DATA.md`](../../docs/WHOOP5_DEEP_DATA.md).
 
-The frame source can be **either** an `hci_extract` / `whoop_capture` `capture.json` **or a NOOP
-SQLite store** — the same `frames` table `whoop_activity.py` reads, which is where an install's own
-offloaded history already sits. The file is identified by its SQLite header, not its extension, so a
-store copied off a phone under any name works. Use `--device-id` if yours is not the default `2`.
+The frame source can be **either** an `hci_extract` / `whoop_capture` `capture.json` **or the SQLite
+capture DB `whoop_sync.py` writes** (`captures/whoop.db`) — the same `frames` table
+`whoop_activity.py` reads. Previously a Linux capture had to be round-tripped through
+`whoop_sync.py export --only-type 47` before this tool, which sits in the same directory, could read
+it. The file is identified by its SQLite header rather than its extension, since capture DBs get
+renamed freely. Use `--device-id` if yours is not the default `2`.
 
-That matters for the open question: the #103 bar needs nightly candidate values across **several
-straps**, and requiring everyone to re-capture over HCI first is a much harder ask than pointing this
-at a database they already have.
+> **This is the capture tooling's database, not the app's.** Neither shipped app has a `frames`
+> table — Android uses Room, iOS/macOS uses GRDB — so this cannot be pointed at a phone's store or a
+> `.noopbak`. Validating a strap still requires a capture.
 
 ```bash
 # One strap from a capture (summary stays aggregate-only unless you pass --show-nights):
 python3 validate_spo2_candidate.py capture.json my_whoop_data/ --device strap-a --postable
 
-# ...or straight from a NOOP store:
-python3 validate_spo2_candidate.py whoop.db my_whoop_data/ --device strap-a --postable
+# ...or straight from a whoop_sync.py capture DB, skipping the export step:
+python3 validate_spo2_candidate.py captures/whoop.db my_whoop_data/ --device strap-a --postable
 
 # Several straps at once (entries may mix .json and .db, and carry their own device_id):
 python3 validate_spo2_candidate.py --batch devices.json --postable
