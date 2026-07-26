@@ -289,3 +289,44 @@ class LoadFrameRecordsTest(unittest.TestCase):
         with self.assertRaises(SystemExit) as cm:
             vs.load_frame_records(path)
         self.assertIn("not a whoop_sync.py frame store", str(cm.exception))
+
+
+class SqliteV18FilterTest(unittest.TestCase):
+    """Newer 5/MG firmware serves a v20 (2140 B) + v21 (1244 B) pair every second alongside the
+    124-byte v18, so `inner_type=47` alone loads mostly bytes this tool discards — only v18 carries
+    @82. Filtering by version in SQL took a mixed 20k-usable-record corpus from 115 MB to 28 MB."""
+
+    def _mixed_store(self, n_v18=5, n_v20=5, device_id=2):
+        path = tempfile.mktemp(suffix=".db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE frames (device_id INT, inner_type INT, hex TEXT)")
+        for i in range(n_v18):
+            f = make_v18(unix=1780000000 + i * 60, sleep_state=2, aux_byte_82=96)
+            con.execute("INSERT INTO frames VALUES (?,47,?)", (device_id, f.hex()))
+        for _ in range(n_v20):
+            v20 = bytearray(2140)
+            v20[0], v20[8], v20[9] = 0xAA, 47, 20
+            con.execute("INSERT INTO frames VALUES (?,47,?)", (device_id, bytes(v20).hex()))
+        con.commit()
+        con.close()
+        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        return path
+
+    def test_v20_v21_rows_are_filtered_in_sql_not_after_loading(self):
+        recs = vs.load_frame_records(self._mixed_store(n_v18=5, n_v20=5))
+        self.assertEqual(len(recs), 5, "v20 rows should never reach Python")
+        self.assertTrue(all(bytes.fromhex(r["hex"])[9] == 18 for r in recs))
+
+    def test_a_store_with_type47_but_no_v18_says_so(self):
+        """Different fix from an empty store: the frames are there, they are the wrong layout."""
+        with self.assertRaises(SystemExit) as cm:
+            vs.load_frame_records(self._mixed_store(n_v18=0, n_v20=3))
+        msg = str(cm.exception)
+        self.assertIn("none are v18", msg)
+        self.assertIn("3 type-47 frames", msg)
+
+    def test_wrong_device_id_still_reports_the_device_id_cause(self):
+        """The v18 filter must not mask the pre-existing device-id diagnostic."""
+        with self.assertRaises(SystemExit) as cm:
+            vs.load_frame_records(self._mixed_store(n_v18=5), device_id=99)
+        self.assertIn("device-id", str(cm.exception))

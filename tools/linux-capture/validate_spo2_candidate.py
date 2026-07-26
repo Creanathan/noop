@@ -226,9 +226,26 @@ def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
     if looks_like_sqlite(path):
         con = sqlite3.connect(path)
         try:
+            # Filter to v18 IN SQL, not after loading. hist_version sits at frame offset 9, i.e. hex
+            # chars 19-20 (substr is 1-indexed), and 0x12 == 18. Newer 5/MG firmware serves a
+            # v20 (2140 B) + v21 (1244 B) pair every second alongside the 124-byte v18, so a mixed
+            # corpus is mostly bytes this tool discards: measured 115 MB to reach 20k usable records
+            # unfiltered, against 56 MB for 50k when the store is pure v18. Only v18 carries @82.
             rows = con.execute(
-                "SELECT hex FROM frames WHERE device_id=? AND inner_type=47", (device_id,)
+                "SELECT hex FROM frames WHERE device_id=? AND inner_type=47 "
+                "AND substr(hex, 19, 2) = '12'",
+                (device_id,),
             ).fetchall()
+            if not rows:
+                # Distinguish "no v18" from "no frames at all" — they need different fixes.
+                any47 = con.execute(
+                    "SELECT COUNT(*) FROM frames WHERE device_id=? AND inner_type=47", (device_id,)
+                ).fetchone()[0]
+                if any47:
+                    raise SystemExit(
+                        f"{path}: {any47} type-47 frames for device_id={device_id}, but none are "
+                        f"v18 — @82 only exists in the v18 layout"
+                    )
         except sqlite3.Error as e:
             raise SystemExit(f"{path}: not a whoop_sync.py frame store ({e})")
         finally:
