@@ -493,15 +493,15 @@ final class Backfiller {
                 log?("Historical records use firmware layout v\(v), which NOOP doesn't decode yet — no motion data, so sleep can't be computed from the strap. Please report this (issue #30).")
             }
             let decoded = d.decoded
+            // #520: accumulate the motion-magnitude diagnostic across the session; logged once at the
+            // session boundary by BLEManager, never per chunk. Merge logic lives in WhoopProtocol so it is
+            // covered by swift-packages CI — this app-target file is not.
+            sessionDynAccel.merge(decoded.dynAccel)
             // #547: surface a bad-clock strap. extractHistoricalStreams DROPPED any record whose own unix
             // timestamp was implausible (far-past / bogus-2027 / future-dated) before it could pollute the
             // DB. Log it (once it's accrued at least one this session, on the first chunk that sees it) so
             // the user's strap log explains why a clock-broken strap banks fewer rows than expected — this
             // is the strap's clock, not a NOOP decode bug. Observability only; the gate already did the work.
-            // #520: accumulate the motion-magnitude diagnostic across the session; logged once at the
-            // session boundary by BLEManager, never per chunk. Merge logic lives in WhoopProtocol so it is
-            // covered by swift-packages CI — this app-target file is not.
-            sessionDynAccel.merge(decoded.dynAccel)
             if decoded.droppedImplausible > 0 {
                 let wasZero = sessionDroppedImplausible == 0
                 sessionDroppedImplausible += decoded.droppedImplausible

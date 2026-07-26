@@ -101,10 +101,7 @@ class DynAccelDiagTest {
         assertEquals(b, a)
     }
 
-    /**
-     * The byte-identical contract with Swift. Locale matters here: the formatter must use Locale.ROOT, or a
-     * de/fr device would render `0,773` and silently produce a different corpus from macOS.
-     */
+    /** The byte-identical contract with Swift — pinned exactly, so a format drift on either side fails. */
     @Test
     fun logLineFormat() {
         val d = DynAccelDiag()
@@ -132,7 +129,11 @@ class DynAccelDiagTest {
         assertEquals(1, DynAccelDiag.pct(0.005))
     }
 
-    /** The locale trap, asserted directly: the line must not change when the default locale is comma-decimal. */
+    /**
+     * The locale trap, asserted directly. The line is built from Int interpolation rather than
+     * [String.format], so locale cannot reach it — this guards that property rather than a formatter
+     * argument, and would fail immediately if anyone reintroduced `String.format` without Locale.ROOT.
+     */
     @Test
     fun logLineIsLocaleIndependent() {
         val previous = java.util.Locale.getDefault()

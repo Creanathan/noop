@@ -415,13 +415,13 @@ class Backfiller(
                     spo2Dumped++
                 }
             }
+            // #520: accumulate the motion-magnitude diagnostic across the session; logged once at the
+            // session boundary, never per batch.
+            sessionDynAccel.merge(decoded.dynAccel)
             // #547: the strap is emitting records with implausible timestamps (a bad clock/flash —
             // far-past, a year-2027 spike, or future-dated `unix`). The ingest gate dropped them so they
             // can't pollute the day-windowed analytics; surface it ONCE per session so a bad-clock strap
             // is visible in a shared log (the strap clock is genuinely bad — this is NOOP being robust).
-            // #520: accumulate the motion-magnitude diagnostic across the session; logged once at the
-            // session boundary, never per batch.
-            sessionDynAccel.merge(decoded.dynAccel)
             sessionDroppedImplausible += decoded.droppedImplausibleTs
             if (decoded.droppedImplausibleTs > 0 && !loggedImplausibleClock) {
                 loggedImplausibleClock = true
