@@ -77,6 +77,27 @@ def test_find_peaks_counts_beats():
     assert 9 <= len(pk) <= 11, len(pk)
 
 
+def test_find_peaks_enforces_min_dist_keeping_the_taller():
+    """Two maxima closer together than min_dist: only the taller survives.
+
+    Guards the spacing filter specifically. `test_find_peaks_counts_beats` above does not — its beats
+    are already well separated, so deleting the min_dist check entirely leaves it passing.
+    """
+    v = [0.0, 5.0, 0.0, 9.0, 0.0]           # maxima at 1 (5) and 3 (9), two samples apart
+    assert H.find_peaks(v, min_dist=3, min_prom=0.0) == [3]
+    assert H.find_peaks(v, min_dist=2, min_prom=0.0) == [1, 3]
+
+
+def test_find_peaks_enforces_min_prom():
+    """A local maximum below min_prom is not a peak.
+
+    Guards the prominence gate specifically — deleting it also leaves the beat-count test passing.
+    """
+    v = [0.0, 2.0, 0.0, 9.0, 0.0]
+    assert H.find_peaks(v, min_dist=1, min_prom=5.0) == [3]
+    assert H.find_peaks(v, min_dist=1, min_prom=1.0) == [1, 3]
+
+
 def test_spot_hrv_returns_none_on_too_few_samples():
     # too few samples → None (no false HRV)
     assert H.spot_hrv([0, 1, 2], [1.0, 2.0, 1.0], 24.0) is None
