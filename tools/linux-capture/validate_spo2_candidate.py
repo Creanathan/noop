@@ -9,7 +9,7 @@ Context (see docs/WHOOP5_DEEP_DATA.md and issue #103):
 
 This tool answers the promote-or-not question as *known plaintext*:
 
-    capture.json  +  whoop_export  ──►  nightly mean(@82 | asleep, 70–100)
+    capture.json OR whoop.db  +  whoop_export  ──►  nightly mean(@82 | asleep, 70–100)
                                        vs CSV blood_oxygen_pct
                                        ──►  r, MAE, bias, offset-specificity
 
@@ -42,6 +42,7 @@ import io
 import json
 import math
 import os
+import sqlite3
 import statistics
 import sys
 import zipfile
@@ -200,6 +201,48 @@ def load_cycles(export_path: str) -> List[dict]:
 
 # --- Capture decode --------------------------------------------------------------------------------
 
+def looks_like_sqlite(path: str) -> bool:
+    """True if `path` is a SQLite file. Sniffs the 16-byte header rather than trusting the extension —
+    NOOP's Android store is `whoop.db` but a copied/renamed capture is common."""
+    try:
+        with open(path, "rb") as f:
+            return f.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
+def load_frame_records(path: str, *, device_id: int = 2) -> List[dict]:
+    """Frame records as `{"hex": ...}` dicts, from EITHER a capture.json or a NOOP SQLite store.
+
+    The JSON path is what hci_extract / whoop_capture produce. The SQLite path reads the same
+    `frames` table `whoop_activity.records()` reads, which is where a NOOP install's own offloaded
+    history already lives — without it this tool can only validate data that was re-captured over
+    HCI, which is a far harder ask than pointing it at the database the app already wrote.
+    """
+    if looks_like_sqlite(path):
+        con = sqlite3.connect(path)
+        try:
+            rows = con.execute(
+                "SELECT hex FROM frames WHERE device_id=? AND inner_type=47", (device_id,)
+            ).fetchall()
+        except sqlite3.Error as e:
+            raise SystemExit(f"{path}: not a NOOP frame store ({e})")
+        finally:
+            con.close()
+        if not rows:
+            raise SystemExit(
+                f"{path}: no type-47 frames for device_id={device_id} "
+                f"(try --device-id; whoop_activity.py defaults to 2)"
+            )
+        return [{"hex": r[0]} for r in rows]
+
+    with open(path) as f:
+        capture = json.load(f)
+    if not isinstance(capture, list):
+        raise SystemExit(f"{path}: expected a JSON list of frame records, or a NOOP SQLite store")
+    return capture
+
+
 def iter_v18_records(capture_records: Sequence[dict]) -> Iterable[dict]:
     """Yield decoded v18 fields from capture.json entries (absolute frame offsets)."""
     for rec in capture_records:
@@ -284,11 +327,9 @@ def validate_device(
     *,
     device: str = "device",
     require_asleep: bool = True,
+    device_id: int = 2,
 ) -> dict:
-    with open(capture_path) as f:
-        capture = json.load(f)
-    if not isinstance(capture, list):
-        raise SystemExit(f"{capture_path}: expected a JSON list of frame records")
+    capture = load_frame_records(capture_path, device_id=device_id)
 
     cycles = load_cycles(export_path)
     records = list(iter_v18_records(capture))
@@ -462,6 +503,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("capture", nargs="?", help="capture.json (from hci_extract / whoop_capture)")
     p.add_argument("export", nargs="?", help="WHOOP CSV export .zip or folder")
     p.add_argument("--device", default="device", help="label for this strap (default: device)")
+    p.add_argument("--device-id", type=int, default=2,
+                   help="device_id row filter when the capture is a NOOP SQLite store "
+                        "(default: 2, matching whoop_activity.py)")
     p.add_argument(
         "--batch",
         metavar="devices.json",
@@ -499,6 +543,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     entry["capture"],
                     entry["export"],
                     device=entry.get("device", "device"),
+                    device_id=int(entry.get("device_id", args.device_id)),
                     require_asleep=require_asleep,
                 )
             )
@@ -510,6 +555,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 args.capture,
                 args.export,
                 device=args.device,
+                device_id=args.device_id,
                 require_asleep=require_asleep,
             )
         )

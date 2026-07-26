@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import struct
 import tempfile
 import unittest
@@ -224,3 +225,65 @@ class MultiDeviceBatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoadFrameRecordsTest(unittest.TestCase):
+    """#103: the validator originally read capture.json only, so it could not be pointed at the place a
+    NOOP install's own history already lives — the SQLite `frames` table `whoop_activity.records()`
+    reads. Requiring an HCI re-capture instead is a far harder ask than opening the existing database,
+    and it was the practical blocker on getting multi-device @82 evidence at all."""
+
+    def _store(self, rows, *, device_id=2, inner_type=47):
+        path = tempfile.mktemp(suffix=".db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE frames (device_id INT, inner_type INT, hex TEXT)")
+        for h in rows:
+            con.execute("INSERT INTO frames VALUES (?,?,?)", (device_id, inner_type, h))
+        con.commit()
+        con.close()
+        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        return path
+
+    def test_reads_frames_from_a_noop_sqlite_store(self):
+        frames = [make_v18(unix=1780000000 + i * 60, sleep_state=2, aux_byte_82=96).hex()
+                  for i in range(5)]
+        recs = vs.load_frame_records(self._store(frames), device_id=2)
+        self.assertEqual(len(recs), 5)
+        decoded = list(vs.iter_v18_records(recs))
+        self.assertEqual([d["spo2_candidate_82"] for d in decoded], [96] * 5)
+
+    def test_detects_sqlite_by_header_not_extension(self):
+        """A store copied off a phone is often renamed; trusting the suffix would send it to json.load."""
+        path = self._store([make_v18(sleep_state=2, aux_byte_82=95).hex()])
+        renamed = path + ".capture"
+        os.rename(path, renamed)
+        self.addCleanup(lambda: os.path.exists(renamed) and os.unlink(renamed))
+        self.assertTrue(vs.looks_like_sqlite(renamed))
+        self.assertEqual(len(vs.load_frame_records(renamed)), 1)
+
+    def test_json_captures_still_load_unchanged(self):
+        path = tempfile.mktemp(suffix=".json")
+        with open(path, "w") as f:
+            json.dump([{"hex": make_v18(sleep_state=2, aux_byte_82=94).hex()}], f)
+        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        self.assertFalse(vs.looks_like_sqlite(path))
+        self.assertEqual(len(vs.load_frame_records(path)), 1)
+
+    def test_wrong_device_id_says_so_instead_of_reporting_zero_nights(self):
+        """Silently finding nothing would read as 'the candidate does not track', which is the wrong
+        conclusion to hand someone from a filter mismatch."""
+        path = self._store([make_v18(sleep_state=2, aux_byte_82=96).hex()], device_id=2)
+        with self.assertRaises(SystemExit) as cm:
+            vs.load_frame_records(path, device_id=99)
+        self.assertIn("device-id", str(cm.exception))
+
+    def test_a_sqlite_file_that_is_not_a_frame_store_is_rejected_clearly(self):
+        path = tempfile.mktemp(suffix=".db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE unrelated (x INT)")
+        con.commit()
+        con.close()
+        self.addCleanup(lambda: os.path.exists(path) and os.unlink(path))
+        with self.assertRaises(SystemExit) as cm:
+            vs.load_frame_records(path)
+        self.assertIn("not a NOOP frame store", str(cm.exception))
