@@ -3383,9 +3383,14 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
         // Settings 5/MG-controls gate off the ACTUALLY-CONNECTED strap. (PR#195)
         // On a genuine family switch (4.0 ↔ 5/MG) also untick the 5/MG-only probes so nothing carries
         // over to the wrong, unsupported strap. Same-family reconnects don't reset (previous == new).
+        // Compare deviceFamily, not the raw value — Swift's WhoopModel already exposes it, and if MG
+        // ever splits from plain 5.0 as its own case the two would share .whoop5, so a raw-value
+        // compare would reset the probes on a same-family switch. Mirrors the Kotlin service compare.
         let previousSelectedModel = UserDefaults.standard.string(forKey: "selectedWhoopModel")
         UserDefaults.standard.set(selectedModel.rawValue, forKey: "selectedWhoopModel")
-        if let previousSelectedModel, previousSelectedModel != selectedModel.rawValue {
+        if let previousSelectedModel,
+           let previousModel = WhoopModel(rawValue: previousSelectedModel),
+           previousModel.deviceFamily != selectedModel.deviceFamily {
             PuffinExperiment.resetFiveMGGatedProbes()
             log("Strap family switched (\(previousSelectedModel) → \(selectedModel.rawValue)) — reset 5/MG-only experimental toggles to off.")
         }
