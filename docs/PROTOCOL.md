@@ -582,6 +582,47 @@ waiting on a network.
 
 ---
 
+## 7.9 WHOOP 5.0 vs MG — telling the hardware apart
+
+Both labels share the `fd4b…` GATT family and the same puffin envelope: framing, CRC, offload and
+historical decode are **identical**, and `DeviceFamily.whoop5` covers both. What differs is hardware —
+an MG carries the ECG-conductive clasp, a 5.0 does not.
+
+`Whoop5Variant` resolves it from the standard BLE Device Information Service, deliberately orthogonal
+to `DeviceFamily` so a capability gate can never change how a frame is parsed:
+
+| Signal | DIS characteristic | Reads |
+|---|---|---|
+| Serial prefix `5AM` | Serial Number String (`0x2A25`) | MG |
+| Serial prefix `5AG` | Serial Number String (`0x2A25`) | 5.0 |
+| Hardware revision contains `WG50` | Hardware Revision String (`0x2A27`) | 5.0 |
+
+Contradictory signals resolve to `.unknown` rather than a guess, and `.unknown` is not MG — an MG-only
+feature stays gated off until the hardware attests to it. Only the 5.0 hardware string is attested on
+real hardware so far; the MG's own revision string is not, so its absence proves nothing.
+
+## 7.10 SpO₂ on 5.0 / MG — what the wire does and does not carry
+
+Recorded because "why is there no blood oxygen?" is a recurring question with a protocol answer.
+
+- **There is no `GET_SPO2`-style opcode.** The `CommandNumber` table carries 80 commands and none is
+  an oxygen/blood-oxygen read. SpO₂ is not a pollable gauge, so looking for a missing opcode is a dead
+  end.
+- **It is computed on-device, during sleep.** Expect values only in overnight windows, never a
+  continuous 24/7 series.
+- **The export is an aggregate.** `blood_oxygen_pct` in a WHOOP CSV is typically one value per recovery
+  cycle, so it will not equal a plain mean of raw wire samples — rounding, quality gates and
+  incomplete nights all move it.
+- **A night with no export value is a real gap**, not a NOOP bug. Naps and incomplete nights routinely
+  carry none.
+
+So the research target is finding the banked on-device sample in the historical type-47 record — not
+inventing a red/IR ratio or reversing a calibration curve. The v18 `@82` candidate and its split
+cross-device evidence are covered in
+[`WHOOP5_DEEP_DATA.md`](WHOOP5_DEEP_DATA.md); the full v18 field map lives in
+[`BLE_REVERSE_ENGINEERING.md`](BLE_REVERSE_ENGINEERING.md#the-whoop-50-type-47-record-version-18) and
+is deliberately **not** duplicated here — one table, one place to keep correct.
+
 ## 8. Decoded output (`ParsedFrame`)
 
 `parseFrame(_:)` returns a `ParsedFrame` with the validated envelope, a typed field list
