@@ -430,6 +430,7 @@ garbage (HR `0`, gravity overflow). The fields below were read off real frames a
 | 24 + 2·i | `rr[i]` (u16, ms) | 60000/mean(R-R) ≈ HR for 88 % (rest are HR-averaging) |
 | 36 | `hr_fixed_8_8` (u16 LE) — bpm = `value/256` | a **higher-precision heart rate**: `value/256` correlates **0.989** with the integer `heart_rate@22` over ~258k records and carries sub-bpm fractions `@22` can't (e.g. `25997` → 101.55 bpm vs `@22`=102). |
 | 33 / 38 / 40 | raw bytes near the HR / R-R fields | carried **raw** (meaning not pinned from observation): `@33` a flag-ish byte, `@38` a u16 beside the R-R fields, `@40` a status-like byte. |
+| 41 | `dynamic_acceleration` (f32, g) | the strap's own **gravity-removed motion magnitude**, one scalar per second sitting immediately before the gravity triplet. Gated to `[0, 8] g` so a wrong offset stores nothing rather than garbage; reads 0.006–0.033 g across the resting oracle frames. Decoded on both platforms but **not persisted and not scored** — `step_motion_counter@57` and `activity_class@63` are what the motion paths actually consume. See the byte-43 note below. |
 | 45 / 49 / 53 | `gravity_x/y/z` (f32, g) | \|g\| ≈ 1.0 for 100 % of 500 records; v18 has **one** triplet (not v24's two) |
 | 57–58 | `step_motion_counter` (u16 LE @[57:59]) | a **cumulative** counter: climbs while moving, flat when still, low byte wraps at 256. **Steps = Σ wrap-aware diffs** `(cur-prev)&0xFFFF` — *not* the value summed per record (that over-counts massively — the WHOOP 5/MG step over-report). No per-record step count is in the record. |
 | 59 | `step_cadence` (u8) | a **cadence-like** byte between the counter and `@63`: never `0`, and lower when moving faster (still > walk > run in the data). Raw — no unit asserted. |
@@ -455,6 +456,37 @@ WHOOP 5 worn over the same window, both offloaded and decoded, agree at **corr 0
 overlapping 1 Hz samples, with a **rest-only mean absolute error of 0.7 bpm** (they diverge only during
 exercise, as two independent PPG sensors do). That is a large-sample, cross-generation check on HR@22
 on top of the live-vs-historical match above.
+
+#### Byte 43 is not a respiration rate (#520)
+
+A third-party decoder reads a `u8` at payload offset 35 — **frame offset 43** — and labels it a raw
+respiration rate. It is not. Frame 43 is the third byte of the little-endian `dynamic_acceleration`
+float32 at 41, and the claim is disproved by the fixture frames already in the repo:
+
+| frame | byte 43 as "brpm" | f32@41 as g | \|g\| @45/49/53 |
+|---|---|---|---|
+| `whoop5_v18_real_worn` | 22 | 0.0092 | 1.0086 |
+| `whoop5_v18_real_one_rr` | 47 | 0.0107 | 1.0106 |
+| **`whoop5_v18_real_offwrist`** | **195** | 0.0060 | 0.9985 |
+| `whoop5_v18_real_ack_capture` | 108 | 0.0144 | 1.0074 |
+| `whoop5_v18_real_device2_hr57` | 6 | 0.0328 | 1.0029 |
+| `whoop5_v18_real_device2_hr63` | 9 | 0.0084 | 1.0096 |
+
+The three f32s at 45/49/53 give \|g\| = 0.9985…1.0106 on every frame — three independent floats cannot
+land on unit magnitude at a wrong offset, so the float grid there is certain, which makes 41–44 the
+preceding float. That float reads 0.006–0.033 g, exactly right for a resting gravity-removed
+magnitude. Reading byte 43 as a rate instead gives 6…195 "brpm", and the worst value is on the
+**off-wrist** frame — 195 breaths/min from a strap nobody is wearing, with `heart_rate@22` = 0.
+
+Note the tautology to avoid: byte 43 *is* byte 2 of that float by construction, so reproducing it from
+the float's exponent/mantissa bits proves nothing. The evidence is the gravity anchor plus the
+off-wrist value. `dynamic_acceleration` is now pinned in `decoder_oracle.json` on both platforms, so a
+future offset change here fails a test rather than silently reintroducing a fabricated vital sign.
+
+WHOOP 5 v18 carries no raw respiration channel, and the decoders already say so: `respRateRawOff = 80`
+is set on the **4.0** `HIST_V24` layout only (§ the type-47 biometric record), and `AnalyticsEngine`
+notes "WHOOP5 v18 carries no raw resp ADC, so this is an on-device estimate" where it derives the rate
+from RSA instead.
 
 Skin temperature @73 **is** decoded (above); PPG / SpO₂ still live further in the 124-byte record but
 lack on-device ground truth, so that region is left raw rather than guessed (project rule: real
