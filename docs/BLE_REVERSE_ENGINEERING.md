@@ -892,9 +892,15 @@ corpus extracted from a snoop of the *official* app would have been produced by 
 answer. The field-behaviour argument above does not depend on how any corpus was captured.
 
 What may still be true is narrower: their handshake sits alongside `TOGGLE_IMU_MODE` (106) and
-`TOGGLE_OPTICAL_MODE` (108), which arm the realtime R20/R21 raw streams. NOOP does not use those paths
-(it takes live HR from standard `0x2A37` and disables the raw flood on connect, §4), so if the exchange
-gates anything, it plausibly gates *those streams* rather than the offload. That is untested here.
+`TOGGLE_OPTICAL_MODE` (108), which arm the realtime R20/R21 raw streams — so if the exchange gates
+anything, it plausibly gates *those streams* rather than the offload.
+
+Our exposure to that is limited but not zero, and worth stating precisely. NOOP takes live HR from the
+standard `0x2A37` profile and disables the R10/R11 flood on connect (§4), and it never sends
+`TOGGLE_OPTICAL_MODE` (108) at all. But `captureRawAccel` **does** send `START_RAW_DATA` (81) +
+`TOGGLE_IMU_MODE` (106) — on demand, for a bounded window, never continuously. So the one place this
+could bite is an on-demand raw-accel capture on a 5/MG. Whether that path yields IMU frames today is
+the observation that would settle the narrow claim, and it is not recorded anywhere here.
 
 **Two questions are genuinely open**, and a capture answers both without implementing anything:
 
