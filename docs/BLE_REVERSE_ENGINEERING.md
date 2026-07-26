@@ -499,10 +499,12 @@ made independently here and never explained: `aux_byte_82` is **nonzero only whi
 asleep**. WHOOP measures SpO₂ only during sleep, so "sleep-only" is the signature either reading
 predicts.
 
-**It cannot be confirmed from anything in this repo.** All **21** v18 frames in the tree — the six
-oracle frames plus fifteen more across the Swift and Kotlin suites — are `sleep_state = 0` (awake), and
-all 21 carry byte 82 = 0. That is consistent with a sleep-only channel, and equally consistent with
-several other readings; absence while awake distinguishes nothing.
+**It cannot be confirmed from anything in this repo, and the evidence base is thinner than a file count
+suggests.** There are exactly **six distinct** v18 frames in the tree — the six in `decoder_oracle.json`,
+from two straps. They recur across the Swift and Kotlin suites (2–7 files each, since the twins share
+fixtures), so a naive grep counts 21 hits and overstates the sample by 3.5×. All six are
+`sleep_state = 0` (awake) and all six carry byte 82 = 0. That is consistent with a sleep-only channel,
+and equally consistent with several other readings; absence while awake distinguishes nothing.
 
 What settles it is the **value range** in a single asleep record: 90–100 is a percentage and the
 identification holds; 0–3 is a state code and it does not. Until an asleep v18 capture exists the byte
