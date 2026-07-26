@@ -60,11 +60,88 @@ data class StreamBatch(
      * so they are captured here for the strap log. Diag only; empty when none. Mirrors Swift `droppedRtcEvents`.
      */
     val droppedRtcEvents: List<DroppedRtcEvent> = emptyList(),
+    /**
+     * #520 diagnostic: a summary of `dynamic_acceleration@41` (the strap's own gravity-removed motion
+     * magnitude) over this batch's v18 records. The field has been decoded on both platforms all along
+     * with nothing consuming it, so there is no evidence on whether it is a usable stillness signal;
+     * this counts what arrived so the strap log can answer that from real nights before anyone pays for
+     * a migration. Diag only (excluded from [isEmpty]). Byte-identical twin of Swift `Streams.dynAccel`.
+     */
+    val dynAccel: DynAccelDiag = DynAccelDiag(),
 ) {
     val isEmpty: Boolean
         get() = hr.isEmpty() && rr.isEmpty() && events.isEmpty() && battery.isEmpty() &&
             spo2.isEmpty() && skinTemp.isEmpty() && resp.isEmpty() && gravity.isEmpty() &&
             steps.isEmpty() && sleepState.isEmpty() && ppgHr.isEmpty() && ppgWaveform.isEmpty()
+}
+
+/**
+ * #520 diagnostic: distribution of `dynamic_acceleration` over one decoded batch. Deliberately a
+ * summary, not a stream — at 1 Hz a night is ~30k values and the open question needs a shape, not
+ * samples. [still] counts values under `SleepStager.gravityStillThresholdG` (0.01 g) so the ratio is
+ * directly comparable to the gravity-delta stillness the stager already uses. Byte-identical twin of
+ * Swift `Streams.DynAccelDiag` — same fields, same fold order, same nulls.
+ */
+data class DynAccelDiag(
+    var count: Int = 0,
+    var still: Int = 0,
+    var min: Double? = null,
+    var max: Double? = null,
+    /** Running sum, so a batch of any size costs O(1) memory. */
+    var sum: Double = 0.0,
+) {
+    /** Mean over [count] values, or null when nothing arrived. */
+    val mean: Double? get() = if (count > 0) sum / count else null
+
+    /** Fraction of values below the stillness threshold, or null when nothing arrived. */
+    val stillFraction: Double? get() = if (count > 0) still.toDouble() / count else null
+
+    /**
+     * Fold another batch's summary into this one. A batch is an arbitrary slice of an offload, so the
+     * still-fraction only means anything once a whole session is merged — the Backfiller accumulates with
+     * this and logs once at the session boundary. Merging an empty diag is a no-op. Twin of Swift.
+     */
+    fun merge(other: DynAccelDiag) {
+        if (other.count <= 0) return
+        count += other.count
+        still += other.still
+        sum += other.sum
+        other.min?.let { lo -> min = min?.let { kotlin.math.min(it, lo) } ?: lo }
+        other.max?.let { hi -> max = max?.let { kotlin.math.max(it, hi) } ?: hi }
+    }
+
+    /**
+     * The strap-log line for a whole offload session, or null when nothing arrived (so a WHOOP 4.0 or a
+     * caught-up session stays quiet). Pure and locale-independent: [java.util.Locale.ROOT] is mandatory
+     * here — the default locale would render `0,021` in e.g. de/fr and diverge from Swift, whose
+     * `String(format:)` is POSIX. Byte-identical twin of Swift `DynAccelDiag.logLine`.
+     */
+    fun logLine(threshold: Double): String? {
+        val lo = min ?: return null
+        val hi = max ?: return null
+        val avg = mean ?: return null
+        val stillPct = stillFraction ?: return null
+        if (count <= 0) return null
+        return String.format(
+            java.util.Locale.ROOT,
+            "Backfill: dynaccel n=%d still=%.0f%% mean=%.3f range=%.3f..%.3f g " +
+                "(thr %.2f) — diagnostic only, not stored or scored (#520)",
+            count, stillPct * 100, avg, lo, hi, threshold,
+        )
+    }
+
+    /**
+     * Fold one decoded value in. [threshold] is passed rather than imported so the protocol layer keeps
+     * no dependency on the analytics layer; the caller supplies the stager's own constant.
+     */
+    fun add(g: Double, threshold: Double) {
+        if (!g.isFinite()) return
+        count += 1
+        sum += g
+        if (g < threshold) still += 1
+        min = min?.let { kotlin.math.min(it, g) } ?: g
+        max = max?.let { kotlin.math.max(it, g) } ?: g
+    }
 }
 
 // Device-agnostic decoded rows (deviceId attached when inserted). Mirror Streams.swift shapes.

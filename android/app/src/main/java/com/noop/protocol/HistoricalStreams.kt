@@ -1,6 +1,7 @@
 package com.noop.protocol
 
 import com.noop.data.BatteryRow
+import com.noop.data.DynAccelDiag
 import com.noop.data.EventEntry
 import com.noop.data.GravityRow
 import com.noop.data.HrRow
@@ -48,6 +49,15 @@ import com.noop.data.StreamPersistence
  * "last night · 12 Jul"). Reuses the same 1.7 B floor already used to validate GET_DATA_RANGE words
  * (WhoopBleClient.dataRangeNewestUnix). Below this → drop the record.
  */
+/**
+ * #520: the stillness cut used by the `dynamic_acceleration` diagnostic. Mirrors
+ * `SleepStager.gravityStillThresholdG` (0.01 g) so the diagnostic's still-fraction can be compared
+ * directly against the gravity-delta stillness the stager already computes. Duplicated as a literal
+ * rather than imported — this is the wire layer and must not depend on the analytics layer. If the
+ * stager's constant moves, move this one with it. Twin of Swift `dynAccelStillThresholdG`.
+ */
+const val DYN_ACCEL_STILL_THRESHOLD_G: Double = 0.01
+
 const val MIN_PLAUSIBLE_UNIX: Long = 1_700_000_000L
 
 /**
@@ -538,6 +548,10 @@ fun extractHistoricalStreams(
     var droppedOldest: Long? = null
     var droppedNewest: Long? = null
     val droppedRtcEvents = ArrayList<DroppedRtcEvent>()
+    // #520 diagnostic: running summary of dynamic_acceleration@41 over this batch. Counted, never
+    // stored — the field has been decoded all along with nothing consuming it, so there is no evidence
+    // on whether it beats the gravity-delta stillness the stager derives today. Twin of Swift.
+    val dynAccel = DynAccelDiag()
 
     // The plausible-timestamp window for this batch (#547): the absolute floor [MIN_PLAUSIBLE_UNIX,
     // wallNow + FUTURE_MARGIN] PLUS, when the strap's GET_DATA_RANGE markers are known AND well-formed
@@ -687,6 +701,10 @@ fun extractHistoricalStreams(
                         ),
                     )
                 }
+                // #520: fold the gravity-removed motion magnitude into the diagnostic summary. The
+                // threshold matches SleepStager.gravityStillThresholdG so the still-fraction is directly
+                // comparable; passed as a literal because the protocol layer must not depend on analytics.
+                p.doubleOrNull("dynamic_acceleration")?.let { dynAccel.add(it, DYN_ACCEL_STILL_THRESHOLD_G) }
             }
 
             PacketType.REALTIME_RAW_DATA.rawValue -> {
@@ -760,6 +778,7 @@ fun extractHistoricalStreams(
         droppedImplausibleOldestTs = droppedOldest,   // #324 poisoned-range epoch span (diag only)
         droppedImplausibleNewestTs = droppedNewest,
         droppedRtcEvents = droppedRtcEvents,
+        dynAccel = dynAccel,
     )
 }
 

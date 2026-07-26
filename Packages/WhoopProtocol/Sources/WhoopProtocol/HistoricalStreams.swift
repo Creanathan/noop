@@ -10,6 +10,13 @@ import Foundation
 /// FUTURE_MARGIN = 1 day — a historical record can never post-date its own capture, so anything more
 /// than a day ahead of wall time is a bad-clock artefact. Keep these in lockstep with the Android
 /// `HistoricalStreams.kt` MIN_PLAUSIBLE_UNIX / FUTURE_MARGIN.
+/// #520: the stillness cut used by the `dynamic_acceleration` diagnostic. Mirrors
+/// `SleepStager.gravityStillThresholdG` (0.01 g) so the diagnostic's still-fraction can be compared
+/// directly against the gravity-delta stillness the stager already computes. Duplicated as a literal
+/// rather than imported — WhoopProtocol is the wire layer and must not depend on StrandAnalytics.
+/// If the stager's constant moves, move this one with it.
+public let dynAccelStillThresholdG = 0.01
+
 public let MIN_PLAUSIBLE_UNIX = 1_700_000_000   // 2023-11
 public let FUTURE_MARGIN = 86_400               // 1 day
 
@@ -231,6 +238,14 @@ public func extractHistoricalStreams(_ parsed: [ParsedFrame],
             if let gx = p["gravity_x"]?.doubleValue {
                 out.gravity.append(GravitySample(ts: ts, x: gx,
                     y: p["gravity_y"]?.doubleValue ?? 0, z: p["gravity_z"]?.doubleValue ?? 0))
+            }
+            // #520 diagnostic: fold `dynamic_acceleration@41` into a summary. Counted, never stored —
+            // the decoder has emitted this field all along with nothing consuming it, so there is no
+            // evidence on whether it beats the gravity-delta stillness the stager derives today. The
+            // threshold matches `SleepStager.gravityStillThresholdG` so the ratios are comparable;
+            // it is passed as a literal because WhoopProtocol must not depend on StrandAnalytics.
+            if let dyn = p["dynamic_acceleration"]?.doubleValue {
+                out.dynAccel.add(dyn, threshold: dynAccelStillThresholdG)
             }
         case "REALTIME_RAW_DATA":
             // #547 gate: the device-epoch→wall mapping can also land out of bounds on a bad clock, so

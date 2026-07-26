@@ -253,6 +253,69 @@ public struct Streams: Equatable, Codable {
     /// The #547 gate discards them like any bad-ts record, but these are the GROUND TRUTH that the clock reset
     /// - so we capture (kind, rawTs) for the strap log before dropping. Transient, empty by default, not encoded.
     public var droppedRtcEvents: [DroppedRtcEvent] = []
+    /// #520 diagnostic: a summary of `dynamic_acceleration@41` (the strap's own gravity-removed motion
+    /// magnitude) over this chunk's v18 records. The field is decoded but has never been persisted or
+    /// scored, so there is no evidence about whether it is a usable stillness signal; this counts what
+    /// arrived so the strap log can answer that from real nights before anyone pays for a migration.
+    /// Transient like the counters above — not in `CodingKeys`, defaults keep golden fixtures identical.
+    public var dynAccel = DynAccelDiag()
+
+    /// #520 diagnostic: distribution of `dynamic_acceleration` over one decoded chunk. Deliberately a
+    /// summary, not a stream — at 1 Hz a night is ~30k values and the open question needs a shape, not
+    /// samples. `still` counts values under `SleepStager.gravityStillThresholdG` (0.01 g) so the ratio is
+    /// directly comparable to the gravity-delta stillness the stager already uses.
+    public struct DynAccelDiag: Equatable, Codable, Sendable {
+        public var count = 0
+        public var still = 0
+        public var min: Double?
+        public var max: Double?
+        /// Mean over `count` values, or nil when nothing arrived. Kept as a running sum so a chunk of any
+        /// size costs O(1) memory.
+        public var sum = 0.0
+        public var mean: Double? { count > 0 ? sum / Double(count) : nil }
+        /// Fraction of values below the stillness threshold, or nil when nothing arrived.
+        public var stillFraction: Double? { count > 0 ? Double(still) / Double(count) : nil }
+
+        public init() {}
+
+        /// Fold another chunk's summary into this one. A chunk is an arbitrary slice of an offload, so the
+        /// still-fraction only means anything once a whole session is merged — the Backfiller accumulates
+        /// with this and logs once at the session boundary. Merging an empty diag is a no-op.
+        public mutating func merge(_ other: DynAccelDiag) {
+            guard other.count > 0 else { return }
+            count += other.count
+            still += other.still
+            sum += other.sum
+            if let lo = other.min { min = min.map { Swift.min($0, lo) } ?? lo }
+            if let hi = other.max { max = max.map { Swift.max($0, hi) } ?? hi }
+        }
+
+        /// The strap-log line for a whole offload session, or nil when nothing arrived (so a WHOOP 4.0 or a
+        /// caught-up session stays quiet). Pure and locale-independent — `String(format:)` with no locale is
+        /// POSIX, and the Kotlin twin passes `Locale.ROOT`, so both platforms emit the same bytes.
+        public func logLine(threshold: Double) -> String? {
+            guard count > 0, let lo = min, let hi = max, let avg = mean, let stillPct = stillFraction else {
+                return nil
+            }
+            // `%ld`, not `%d`: Swift's Int is 64-bit and `%d` reads a 32-bit int, which is undefined for
+            // large counts. Kotlin's `%d` takes a 32-bit Int and is correct there — different specifiers,
+            // identical output bytes, which is what the parity contract is about.
+            return String(format: "Backfill: dynaccel n=%ld still=%.0f%% mean=%.3f range=%.3f..%.3f g "
+                          + "(thr %.2f) — diagnostic only, not stored or scored (#520)",
+                          count, stillPct * 100, avg, lo, hi, threshold)
+        }
+
+        /// Fold one decoded value in. `threshold` is passed rather than imported so WhoopProtocol keeps no
+        /// dependency on StrandAnalytics; the caller supplies the stager's own constant.
+        public mutating func add(_ g: Double, threshold: Double) {
+            guard g.isFinite else { return }
+            count += 1
+            sum += g
+            if g < threshold { still += 1 }
+            if let m = min { self.min = Swift.min(m, g) } else { min = g }
+            if let m = max { self.max = Swift.max(m, g) } else { max = g }
+        }
+    }
     public init(hr: [HRSample] = [], rr: [RRInterval] = [],
                 spo2: [SpO2Sample] = [], skinTemp: [SkinTempSample] = [],
                 resp: [RespSample] = [], gravity: [GravitySample] = [],
