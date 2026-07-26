@@ -406,7 +406,10 @@ fun SettingsScreen(
         // Strong local for the effect's lifetime: Android holds these listeners WEAKLY, so one that is
         // only referenced by the register call gets collected and silently stops firing.
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key in PuffinExperiment.FIVE_MG_GATED_KEYS) rev++
+            // `key` is @Nullable on modern SDKs — it arrives null when the whole file is cleared — so
+            // the null check is required to compile, not just defensive. A clear() is not something
+            // this app does, but treating it as "everything changed" is the correct reading anyway.
+            if (key == null || key in PuffinExperiment.FIVE_MG_GATED_KEYS) rev++
         }
         expPrefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { expPrefs.unregisterOnSharedPreferenceChangeListener(listener) }
