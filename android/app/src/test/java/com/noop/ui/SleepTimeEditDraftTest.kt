@@ -16,41 +16,56 @@ class SleepTimeEditDraftTest {
     fun splitNightCorrectionSavesOneFinalWindow() {
         val original = SleepTimeEditDraft(
             startTs = ts(2026, 7, 16, 0, 3),
-            endTs = ts(2026, 7, 16, 1, 30),
+            endTs = ts(2026, 7, 16, 1, 30)
         )
 
         val finalDraft = original
             .withBedCandidate(
                 candidateBedTs = ts(2026, 7, 16, 0, 0),
                 nowTs = ts(2026, 7, 16, 8, 0),
-                zone = zone,
+                zone = zone
             )
             .withWakeTime(hour = 7, minute = 0, zone = zone)
 
         assertEquals(
             ts(2026, 7, 16, 0, 0) to ts(2026, 7, 16, 7, 0),
-            finalDraft.validatedWindow(nowTs = ts(2026, 7, 16, 8, 0)),
+            finalDraft.validatedWindow(nowTs = ts(2026, 7, 16, 8, 0))
         )
+    }
+
+    @Test
+    fun explicitBedDateAndTimeUpdatesBothDateAndPreservesDuration() {
+        val original = SleepTimeEditDraft(
+            startTs = ts(2026, 7, 16, 23, 0),
+            endTs = ts(2026, 7, 17, 7, 0)
+        )
+
+        val updated = original.withBedDateAndTime(
+            year = 2026, month = 7, day = 10, hour = 22, minute = 30, zone = zone
+        )
+
+        assertEquals(ts(2026, 7, 10, 22, 30), updated.startTs)
+        assertEquals(ts(2026, 7, 11, 6, 30), updated.endTs)
     }
 
     @Test
     fun crossMidnightBedAndWakeResolveAsOneNight() {
         val original = SleepTimeEditDraft(
             startTs = ts(2026, 7, 16, 1, 6),
-            endTs = ts(2026, 7, 16, 5, 0),
+            endTs = ts(2026, 7, 16, 5, 0)
         )
 
         val finalDraft = original
             .withBedCandidate(
                 candidateBedTs = ts(2026, 7, 16, 23, 0),
                 nowTs = ts(2026, 7, 16, 8, 0),
-                zone = zone,
+                zone = zone
             )
             .withWakeTime(hour = 7, minute = 0, zone = zone)
 
         assertEquals(
             ts(2026, 7, 15, 23, 0) to ts(2026, 7, 16, 7, 0),
-            finalDraft.validatedWindow(nowTs = ts(2026, 7, 16, 8, 0)),
+            finalDraft.validatedWindow(nowTs = ts(2026, 7, 16, 8, 0))
         )
     }
 
@@ -58,7 +73,7 @@ class SleepTimeEditDraftTest {
     fun wakeAtOrBeforeBedRollsToFollowingDay() {
         val draft = SleepTimeEditDraft(
             startTs = ts(2026, 7, 15, 23, 0),
-            endTs = ts(2026, 7, 16, 5, 0),
+            endTs = ts(2026, 7, 16, 5, 0)
         ).withWakeTime(hour = 22, minute = 30, zone = zone)
 
         assertEquals(ts(2026, 7, 16, 22, 30), draft.endTs)
@@ -68,7 +83,7 @@ class SleepTimeEditDraftTest {
     fun invalidIntermediateWindowCannotBeSaved() {
         val draft = SleepTimeEditDraft(
             startTs = ts(2026, 7, 16, 6, 0),
-            endTs = ts(2026, 7, 16, 5, 0),
+            endTs = ts(2026, 7, 16, 5, 0)
         )
 
         assertNull(draft.validatedWindow(nowTs = ts(2026, 7, 16, 8, 0)))

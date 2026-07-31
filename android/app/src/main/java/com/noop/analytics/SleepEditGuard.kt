@@ -48,7 +48,7 @@ object SleepEditGuard {
         candidateBedTs: Long,
         originalWakeTs: Long?,
         nowTs: Long,
-        zone: ZoneId = ZoneId.systemDefault(),
+        zone: ZoneId = ZoneId.systemDefault()
     ): Long {
         val prevDay = Instant.ofEpochSecond(previousBedTs).atZone(zone).toLocalDate()
         val candZoned = Instant.ofEpochSecond(candidateBedTs).atZone(zone)
