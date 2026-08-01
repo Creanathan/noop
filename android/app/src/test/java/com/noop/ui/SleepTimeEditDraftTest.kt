@@ -34,7 +34,7 @@ class SleepTimeEditDraftTest {
     }
 
     @Test
-    fun explicitWakeDateIsPreservedAfterBedCorrection() {
+    fun crossMidnightBedAndExplicitWakeDateRemainOneWindow() {
         val original = SleepTimeEditDraft(
             startTs = ts(2026, 7, 16, 1, 6),
             endTs = ts(2026, 7, 16, 5, 0),
@@ -46,10 +46,39 @@ class SleepTimeEditDraftTest {
                 nowTs = ts(2026, 7, 16, 8, 0),
                 zone = zone,
             )
-            .withWakeCandidate(ts(2026, 7, 18, 7, 0))
+            .withWakeCandidate(ts(2026, 7, 17, 7, 0))
 
-        assertEquals(ts(2026, 7, 15, 23, 0), finalDraft.startTs)
-        assertEquals(ts(2026, 7, 18, 7, 0), finalDraft.endTs)
+        assertEquals(
+            ts(2026, 7, 15, 23, 0) to ts(2026, 7, 17, 7, 0),
+            finalDraft.validatedWindow(nowTs = ts(2026, 7, 17, 8, 0)),
+        )
+    }
+
+    @Test
+    fun issue970CorrectionPreservesExplicitSameDayWakeDate() {
+        val draft = SleepTimeEditDraft(
+            startTs = ts(2026, 7, 28, 22, 30),
+            endTs = ts(2026, 7, 29, 7, 30),
+        ).withBedCandidate(
+            candidateBedTs = ts(2026, 7, 29, 2, 30),
+            nowTs = ts(2026, 7, 29, 8, 0),
+            zone = zone,
+        ).withWakeCandidate(ts(2026, 7, 29, 7, 30))
+
+        assertEquals(
+            ts(2026, 7, 29, 2, 30) to ts(2026, 7, 29, 7, 30),
+            draft.validatedWindow(nowTs = ts(2026, 7, 29, 8, 0)),
+        )
+    }
+
+    @Test
+    fun explicitLaterWakeDateIsPreserved() {
+        val draft = SleepTimeEditDraft(
+            startTs = ts(2026, 7, 16, 23, 0),
+            endTs = ts(2026, 7, 17, 7, 0),
+        ).withWakeCandidate(ts(2026, 7, 18, 7, 0))
+
+        assertEquals(ts(2026, 7, 18, 7, 0), draft.endTs)
     }
 
     @Test
