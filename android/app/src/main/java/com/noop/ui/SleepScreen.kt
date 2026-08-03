@@ -1887,7 +1887,7 @@ private fun NightNavHeader(
             val dateDialog = DatePickerDialog(
                 context,
                 { _, year, month, day ->
-                    dateChosen = true,
+                    dateChosen = true
                     val selectedDate = Calendar.getInstance().apply {
                         timeInMillis = draftForWake.endTs * 1000L
                         set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, day)

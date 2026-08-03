@@ -50,6 +50,7 @@ class SleepTimeEditDraftTest {
 
         assertEquals(ts(2026, 7, 15, 23, 0), finalDraft.startTs)
         assertEquals(ts(2026, 7, 18, 7, 0), finalDraft.endTs)
+        assertNull(finalDraft.validatedWindow(nowTs = ts(2026, 7, 18, 8, 0)))
     }
 
     @Test
