@@ -3034,6 +3034,14 @@ private struct SleepTimeEditor: View {
         _wake = State(initialValue: Date(timeIntervalSince1970: TimeInterval(wakeTs)))
     }
 
+    /// The current edit window after the same future/inverted/duration guards used by persistence.
+    private var validatedWindow: (start: Int, end: Int)? {
+        SleepEditGuard.clampedEditWindow(
+            start: Int(bed.timeIntervalSince1970),
+            end: Int(wake.timeIntervalSince1970),
+            now: Int(Date().timeIntervalSince1970))
+    }
+
     /// The single save funnel: both the direct Save and the #940 disjoint confirm land here.
     private func commit(start: Int, end: Int) {
         saving = true
@@ -3044,6 +3052,8 @@ private struct SleepTimeEditor: View {
     }
 
     var body: some View {
+        let canSave = validatedWindow != nil
+
         VStack(alignment: .leading, spacing: NoopMetrics.gap) {
             Text(title).font(StrandFont.title2).foregroundStyle(StrandPalette.textPrimary)
             Text(blurb)
@@ -3063,7 +3073,7 @@ private struct SleepTimeEditor: View {
                     Divider().overlay(StrandPalette.hairline)
                     // The wake date and time are both editable so corrections preserve the exact
                     // endpoint selected by the user (#970).
-                    DatePicker(wakeLabel, selection: $wake,
+                    DatePicker(wakeLabel, selection: $wake, in: ...Date(),
                                displayedComponents: [.date, .hourAndMinute])
                         .datePickerStyle(.compact)
                         .font(StrandFont.body)
@@ -3094,10 +3104,7 @@ private struct SleepTimeEditor: View {
                     // #940 guard 2: a corrected window that no longer touches the night's recorded
                     // coverage has no data to stage from. Silently accepting it fabricated an
                     // all-awake phantom night; ask first.
-                    let start = Int(bed.timeIntervalSince1970)
-                    let end = Int(wake.timeIntervalSince1970)
-                    guard let window = SleepEditGuard.clampedEditWindow(
-                        start: start, end: end, now: Int(Date().timeIntervalSince1970)) else { return }
+                    guard let window = validatedWindow else { return }
                     if let coverage, SleepEditGuard.isDisjoint(
                         newStart: window.start, newEnd: window.end,
                         coverageStart: coverage.lowerBound, coverageEnd: coverage.upperBound) {
@@ -3107,7 +3114,8 @@ private struct SleepTimeEditor: View {
                     }
                 }
                 .buttonStyle(.noopPrimary)
-                .disabled(saving)
+                .disabled(saving || !canSave)
+                .opacity(canSave ? 1 : 0.55)
             }
         }
         .padding(NoopMetrics.screenPadding)
